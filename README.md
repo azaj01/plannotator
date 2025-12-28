@@ -6,6 +6,13 @@
 
 Interactive Plan Review: Mark up and refine your plans using a UI, easily share for team collaboration, automatically integrates with Claude Code plan mode.
 
+<!-- TODO: Replace VIDEO_ID with actual YouTube video ID -->
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=VIDEO_ID">
+    <img src="https://img.youtube.com/vi/VIDEO_ID/maxresdefault.jpg" alt="Watch the demo" width="600" />
+  </a>
+</p>
+
 ## Install
 
 **macOS / Linux / WSL:**
