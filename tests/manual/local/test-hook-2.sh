@@ -1,13 +1,13 @@
 #!/bin/bash
-# Test script to simulate Claude Code hook locally (alternate plan)
+# Test script to simulate OpenCode origin
 #
 # Usage:
 #   ./test-hook-2.sh
 #
 # What it does:
 #   1. Builds the hook (ensures latest code)
-#   2. Pipes sample plan JSON to the server (simulating Claude Code)
-#   3. Opens browser for you to test the UI
+#   2. Pipes sample plan JSON to the server with PLANNOTATOR_ORIGIN=opencode
+#   3. Opens browser for you to test the UI (should show blue "OpenCode" badge)
 #   4. Prints the hook output (allow/deny decision)
 
 set -e
@@ -15,7 +15,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-echo "=== Plannotator Hook Test (Plan 2) ==="
+echo "=== Plannotator OpenCode Origin Test ==="
 echo ""
 
 # Build first to ensure latest code
@@ -38,8 +38,8 @@ PLAN_JSON=$(cat << 'EOF'
 EOF
 )
 
-# Run the hook server
-echo "$PLAN_JSON" | bun run "$PROJECT_ROOT/apps/hook/server/index.ts"
+# Run the hook server with OpenCode origin
+echo "$PLAN_JSON" | PLANNOTATOR_ORIGIN=opencode bun run "$PROJECT_ROOT/apps/hook/server/index.ts"
 
 echo ""
 echo "=== Test Complete ==="

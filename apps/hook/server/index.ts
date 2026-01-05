@@ -328,7 +328,8 @@ async function startServer(): Promise<ReturnType<typeof Bun.serve>> {
 
           // API: Get plan content
           if (url.pathname === "/api/plan") {
-            return Response.json({ plan: planContent });
+            const origin = process.env.PLANNOTATOR_ORIGIN || "claude-code";
+            return Response.json({ plan: planContent, origin });
           }
 
           // API: Detect Obsidian vaults

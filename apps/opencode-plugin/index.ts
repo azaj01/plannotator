@@ -34,7 +34,7 @@ async function startPlannotatorServer(planContent: string): Promise<ServerResult
       const url = new URL(req.url);
 
       if (url.pathname === "/api/plan") {
-        return Response.json({ plan: planContent });
+        return Response.json({ plan: planContent, origin: "opencode" });
       }
 
       if (url.pathname === "/api/approve" && req.method === "POST") {

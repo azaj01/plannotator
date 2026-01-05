@@ -306,6 +306,7 @@ const App: React.FC = () => {
     return stored === 'true';
   });
   const [isApiMode, setIsApiMode] = useState(false);
+  const [origin, setOrigin] = useState<'claude-code' | 'opencode' | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<'approved' | 'denied' | null>(null);
@@ -360,9 +361,10 @@ const App: React.FC = () => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string }) => {
+      .then((data: { plan: string; origin?: 'claude-code' | 'opencode' }) => {
         setMarkdown(data.plan);
         setIsApiMode(true);
+        if (data.origin) setOrigin(data.origin);
       })
       .catch(() => {
         // Not in API mode - use default content
@@ -459,6 +461,15 @@ const App: React.FC = () => {
               <span className="text-sm font-semibold tracking-tight">Plannotator</span>
             </a>
             <span className="text-xs text-muted-foreground font-mono opacity-60 hidden md:inline">v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.0.0'}</span>
+            {origin && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium hidden md:inline ${
+                origin === 'claude-code'
+                  ? 'bg-orange-500/15 text-orange-400'
+                  : 'bg-zinc-500/20 text-zinc-400'
+              }`}>
+                {origin === 'claude-code' ? 'Claude Code' : 'OpenCode'}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1 md:gap-2">
