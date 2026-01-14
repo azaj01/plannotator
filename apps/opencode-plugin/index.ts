@@ -32,21 +32,22 @@ import reviewHtml from "./review-editor.html" with { type: "text" };
 const reviewHtmlContent = reviewHtml as unknown as string;
 
 export const PlannotatorPlugin: Plugin = async (ctx) => {
-  // Determine if sharing is enabled
+  // Helper to determine if sharing is enabled (lazy evaluation)
   // Priority: OpenCode config > env var > default (enabled)
-  let sharingEnabled = true;
-  try {
-    const config = await ctx.client.config.get({ query: { directory: ctx.directory } });
-    // @ts-ignore - share config may exist
-    if (config?.share !== undefined) {
-      sharingEnabled = config.share !== "disabled";
-    } else {
-      // Fall back to env var
-      sharingEnabled = process.env.PLANNOTATOR_SHARE !== "disabled";
+  async function getSharingEnabled(): Promise<boolean> {
+    try {
+      const response = await ctx.client.config.get({ query: { directory: ctx.directory } });
+      // Config is wrapped in response.data
+      // @ts-ignore - share config may exist
+      const share = response?.data?.share;
+      if (share !== undefined) {
+        return share !== "disabled";
+      }
+    } catch {
+      // Config read failed, fall through to env var
     }
-  } catch {
-    // Fall back to env var if config read fails
-    sharingEnabled = process.env.PLANNOTATOR_SHARE !== "disabled";
+    // Fall back to env var
+    return process.env.PLANNOTATOR_SHARE !== "disabled";
   }
 
   return {
@@ -101,7 +102,7 @@ Do NOT proceed with implementation until your plan is approved.
           origin: "opencode",
           diffType: "uncommitted",
           gitContext,
-          sharingEnabled,
+          sharingEnabled: await getSharingEnabled(),
           htmlContent: reviewHtmlContent,
           onReady: handleReviewServerReady,
         });
@@ -160,7 +161,7 @@ Do NOT proceed with implementation until your plan is approved.
           const server = await startPlannotatorServer({
             plan: args.plan,
             origin: "opencode",
-            sharingEnabled,
+            sharingEnabled: await getSharingEnabled(),
             htmlContent,
             onReady: (url, isRemote, port) => {
               handleServerReady(url, isRemote, port);

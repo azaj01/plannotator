@@ -2,7 +2,12 @@
 # Sandbox script for testing Plannotator OpenCode plugin locally
 #
 # Usage:
-#   ./sandbox-opencode.sh
+#   ./sandbox-opencode.sh [--disable-sharing] [--keep]
+#
+# Options:
+#   --disable-sharing  Create opencode.json with "share": "disabled" to test
+#                      the sharing disable feature without env var pollution
+#   --keep             Don't clean up sandbox on exit (for debugging)
 #
 # What it does:
 #   1. Builds the plugin (ensures latest code)
@@ -21,6 +26,22 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PLUGIN_DIR="$PROJECT_ROOT/apps/opencode-plugin"
 
+# Parse CLI flags
+DISABLE_SHARING=false
+KEEP_SANDBOX=false
+for arg in "$@"; do
+  case $arg in
+    --disable-sharing)
+      DISABLE_SHARING=true
+      shift
+      ;;
+    --keep)
+      KEEP_SANDBOX=true
+      shift
+      ;;
+  esac
+done
+
 echo "=== Plannotator OpenCode Sandbox ==="
 echo ""
 
@@ -35,12 +56,17 @@ echo ""
 SANDBOX_DIR=$(mktemp -d)
 echo "Created sandbox: $SANDBOX_DIR"
 
-# Cleanup on exit
+# Cleanup on exit (unless --keep)
 cleanup() {
   echo ""
-  echo "Cleaning up sandbox..."
-  rm -rf "$SANDBOX_DIR"
-  echo "Done."
+  if [ "$KEEP_SANDBOX" = true ]; then
+    echo "Keeping sandbox at: $SANDBOX_DIR"
+    echo "To clean up manually: rm -rf $SANDBOX_DIR"
+  else
+    echo "Cleaning up sandbox..."
+    rm -rf "$SANDBOX_DIR"
+    echo "Done."
+  fi
 }
 trap cleanup EXIT
 
@@ -1515,9 +1541,25 @@ mkdir -p ~/.config/opencode/command
 cp "$PLUGIN_DIR/commands/"*.md ~/.config/opencode/command/ 2>/dev/null || true
 
 echo ""
+
+# Create opencode.json config if --disable-sharing was passed
+if [ "$DISABLE_SHARING" = true ]; then
+  echo "Creating opencode.json with sharing disabled..."
+  cat > opencode.json << 'EOF'
+{
+  "share": "disabled"
+}
+EOF
+fi
+
 echo "=== Sandbox Ready ==="
 echo ""
 echo "Directory: $SANDBOX_DIR"
+if [ "$DISABLE_SHARING" = true ]; then
+  echo "Sharing: DISABLED (via opencode.json config)"
+else
+  echo "Sharing: enabled (default)"
+fi
 echo ""
 echo "To test:"
 echo "  1. Plan mode: Ask the agent to plan something"
