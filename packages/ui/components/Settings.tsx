@@ -377,7 +377,7 @@ export const Settings: React.FC<SettingsProps> = ({ taterMode, onTaterModeChange
                                     type="text"
                                     value={obsidian.customPath || ''}
                                     onChange={(e) => handleObsidianChange({ customPath: e.target.value })}
-                                    placeholder="/path/to/folder"
+                                    placeholder="/path/to/vault"
                                     className="w-full mt-2 px-3 py-2 bg-muted rounded-lg text-xs font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                                   />
                                 )}
