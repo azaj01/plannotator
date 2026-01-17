@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
-import Highlighter from 'web-highlighter';
+import Highlighter from '@plannotator/web-highlighter';
 import hljs from 'highlight.js';
 import 'highlight.js/styles/github-dark.css';
 import { Block, Annotation, AnnotationType, EditorMode } from '../types';
@@ -136,6 +136,32 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   useEffect(() => {
     onAddAnnotationRef.current = onAddAnnotation;
   }, [onAddAnnotation]);
+
+  // Cmd+C / Ctrl+C keyboard shortcut for copying selected text
+  useEffect(() => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
+      // Check for Cmd+C (Mac) or Ctrl+C (Windows/Linux)
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c') {
+        // Don't intercept if typing in an input/textarea
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+        // If we have an active selection with captured text, use that
+        if (toolbarState?.selectionText) {
+          e.preventDefault();
+          try {
+            await navigator.clipboard.writeText(toolbarState.selectionText);
+          } catch (err) {
+            console.error('Failed to copy:', err);
+          }
+        }
+        // Otherwise let the browser handle default copy behavior
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [toolbarState]);
 
   // Helper to create annotation from highlighter source
   const createAnnotationFromSource = (
@@ -433,8 +459,9 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
             window.getSelection()?.removeAllRanges();
           } else {
             // Show toolbar in selection mode
-            // Capture selection text now (preserves line breaks between blocks)
-            const selectionText = window.getSelection()?.toString() || source.text;
+            // Use source.text from web-highlighter (complete text, captured before DOM modification)
+            // Note: Selection.toString() would be truncated since web-highlighter already wrapped the selection
+            const selectionText = source.text;
             pendingSourceRef.current = source;
             setToolbarState({ element: doms[0] as HTMLElement, source, selectionText });
           }
