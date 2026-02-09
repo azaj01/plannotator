@@ -49,6 +49,7 @@ interface ViewerProps {
   onAddGlobalAttachment?: (path: string) => void;
   onRemoveGlobalAttachment?: (path: string) => void;
   repoInfo?: { display: string; branch?: string } | null;
+  stickyActions?: boolean;
 }
 
 export interface ViewerHandle {
@@ -104,6 +105,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   onAddGlobalAttachment,
   onRemoveGlobalAttachment,
   repoInfo,
+  stickyActions = true,
 }, ref) => {
   const [copied, setCopied] = useState(false);
   const [showGlobalCommentInput, setShowGlobalCommentInput] = useState(false);
@@ -161,6 +163,20 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   const [isCodeBlockToolbarExiting, setIsCodeBlockToolbarExiting] = useState(false);
   const [isCodeBlockToolbarLocked, setIsCodeBlockToolbarLocked] = useState(false);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const stickySentinelRef = useRef<HTMLDivElement>(null);
+  const [isStuck, setIsStuck] = useState(false);
+
+  // Detect when sticky action bar is "stuck" to show card background
+  useEffect(() => {
+    if (!stickyActions || !stickySentinelRef.current) return;
+    const scrollContainer = document.querySelector('main');
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsStuck(!entry.isIntersecting),
+      { root: scrollContainer, threshold: 0 }
+    );
+    observer.observe(stickySentinelRef.current);
+    return () => observer.disconnect();
+  }, [stickyActions]);
 
   // Keep refs in sync with props
   useEffect(() => {
@@ -327,8 +343,25 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
       const manualHighlights = containerRef.current?.querySelectorAll(`[data-bind-id="${id}"]`);
       manualHighlights?.forEach(el => {
         const parent = el.parentNode;
-        while (el.firstChild) {
-          parent?.insertBefore(el.firstChild, el);
+        
+        // Check if this is a code block annotation (parent is <code> element)
+        if (parent && parent.nodeName === 'CODE') {
+          // For code blocks, we need to restore the plain text and re-highlight
+          const codeEl = parent as HTMLElement;
+          const plainText = el.textContent || '';
+          codeEl.textContent = plainText;
+          
+          // Re-apply syntax highlighting
+          const block = blocks.find(b => b.id === codeEl.closest('[data-block-id]')?.getAttribute('data-block-id'));
+          if (block?.language) {
+            codeEl.className = `hljs font-mono language-${block.language}`;
+            hljs.highlightElement(codeEl);
+          }
+        } else {
+          // For regular text, unwrap the mark
+          while (el.firstChild) {
+            parent?.insertBefore(el.firstChild, el);
+          }
         }
         el.remove();
       });
@@ -567,27 +600,17 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     const codeEl = hoveredCodeBlock.element.querySelector('code');
     if (!codeEl) return;
 
-    // Create a range that selects all content in the code block
-    const range = document.createRange();
-    range.selectNodeContents(codeEl);
-
-    // Set the browser selection to this range
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-
     // Use highlighter.fromRange which triggers CREATE event internally
     // We need to handle this synchronously, so we'll create the annotation directly
     const id = `codeblock-${Date.now()}`;
     const codeText = codeEl.textContent || '';
 
-    // Wrap the content manually
+    // Instead of using surroundContents (which breaks with syntax-highlighted code),
+    // we replace the innerHTML entirely with a mark wrapper containing the plain text
     const wrapper = document.createElement('mark');
     wrapper.className = 'annotation-highlight';
     wrapper.dataset.bindId = id;
-
-    // Extract and wrap content
-    range.surroundContents(wrapper);
+    wrapper.textContent = codeText;
 
     // Add the appropriate class
     if (type === AnnotationType.DELETION) {
@@ -595,6 +618,10 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     } else if (type === AnnotationType.COMMENT) {
       wrapper.classList.add('comment');
     }
+
+    // Replace code element's content with the wrapper
+    codeEl.innerHTML = '';
+    codeEl.appendChild(wrapper);
 
     // Create the annotation
     const newAnnotation: Annotation = {
@@ -613,7 +640,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
     onAddAnnotationRef.current(newAnnotation);
 
     // Clear selection
-    selection?.removeAllRanges();
+    window.getSelection()?.removeAllRanges();
     setHoveredCodeBlock(null);
     setIsCodeBlockToolbarLocked(false);
   };
@@ -647,8 +674,11 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
           </div>
         )}
 
+        {/* Sentinel for sticky detection */}
+        {stickyActions && <div ref={stickySentinelRef} className="h-0 w-0 float-right" aria-hidden="true" />}
+
         {/* Header buttons - top right */}
-        <div className="absolute top-3 right-3 md:top-5 md:right-5 flex items-start gap-2">
+        <div className={`${stickyActions ? 'sticky top-3' : ''} z-30 float-right flex items-start gap-2 rounded-lg p-2 transition-colors duration-150 ${isStuck ? 'bg-card/95 backdrop-blur-sm shadow-sm' : ''} -mr-4 -mt-4 md:-mr-5 md:-mt-5 lg:-mr-7 lg:-mt-7 xl:-mr-9 xl:-mt-9`}>
           {/* Attachments button */}
           {onAddGlobalAttachment && onRemoveGlobalAttachment && (
             <AttachmentsButton
@@ -939,7 +969,7 @@ const BlockRenderer: React.FC<{ block: Block }> = ({ block }) => {
         3: 'text-base font-semibold mb-2 mt-6 text-foreground/80',
       }[block.level || 1] || 'text-base font-semibold mb-2 mt-4';
 
-      return <Tag className={styles} data-block-id={block.id}><InlineMarkdown text={block.content} /></Tag>;
+      return <Tag className={styles} data-block-id={block.id} data-block-type="heading"><InlineMarkdown text={block.content} /></Tag>;
 
     case 'blockquote':
       return (

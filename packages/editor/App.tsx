@@ -11,14 +11,17 @@ import { ModeSwitcher } from '@plannotator/ui/components/ModeSwitcher';
 import { TaterSpriteRunning } from '@plannotator/ui/components/TaterSpriteRunning';
 import { TaterSpritePullup } from '@plannotator/ui/components/TaterSpritePullup';
 import { Settings } from '@plannotator/ui/components/Settings';
+import { TableOfContents } from '@plannotator/ui/components/TableOfContents';
 import { useSharing } from '@plannotator/ui/hooks/useSharing';
 import { useAgents } from '@plannotator/ui/hooks/useAgents';
+import { useActiveSection } from '@plannotator/ui/hooks/useActiveSection';
 import { storage } from '@plannotator/ui/utils/storage';
 import { UpdateBanner } from '@plannotator/ui/components/UpdateBanner';
 import { getObsidianSettings, getEffectiveVaultPath, CUSTOM_PATH_SENTINEL } from '@plannotator/ui/utils/obsidian';
 import { getBearSettings } from '@plannotator/ui/utils/bear';
 import { getAgentSwitchSettings, getEffectiveAgentName } from '@plannotator/ui/utils/agentSwitch';
 import { getPlanSaveSettings } from '@plannotator/ui/utils/planSave';
+import { getUIPreferences, type UIPreferences } from '@plannotator/ui/utils/uiPreferences';
 import { getEditorMode, saveEditorMode } from '@plannotator/ui/utils/editorMode';
 import {
   getPermissionModeSettings,
@@ -338,6 +341,7 @@ const App: React.FC = () => {
     const stored = storage.getItem('plannotator-tater-mode');
     return stored === 'true';
   });
+  const [uiPrefs, setUiPrefs] = useState(() => getUIPreferences());
   const [isApiMode, setIsApiMode] = useState(false);
   const [origin, setOrigin] = useState<'claude-code' | 'opencode' | null>(null);
   const [globalAttachments, setGlobalAttachments] = useState<string[]>([]);
@@ -350,6 +354,11 @@ const App: React.FC = () => {
   const [sharingEnabled, setSharingEnabled] = useState(true);
   const [repoInfo, setRepoInfo] = useState<{ display: string; branch?: string } | null>(null);
   const viewerRef = useRef<ViewerHandle>(null);
+  const containerRef = useRef<HTMLElement>(null);
+
+  // Track active section for TOC highlighting
+  const headingCount = useMemo(() => blocks.filter(b => b.type === 'heading').length, [blocks]);
+  const activeSection = useActiveSection(containerRef, headingCount);
 
   // URL-based sharing
   const {
@@ -657,6 +666,11 @@ const App: React.FC = () => {
     setGlobalAttachments(prev => prev.filter(p => p !== path));
   };
 
+  const handleTocNavigate = (blockId: string) => {
+    // Navigation handled by TableOfContents component
+    // This is just a placeholder for future custom logic
+  };
+
   const diffOutput = useMemo(() => exportDiff(blocks, annotations, globalAttachments), [blocks, annotations, globalAttachments]);
 
   const agentName = useMemo(() => {
@@ -671,7 +685,7 @@ const App: React.FC = () => {
         {/* Tater sprites */}
         {taterMode && <TaterSpriteRunning />}
         {/* Minimal Header */}
-        <header className="h-12 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50">
+        <header className="h-12 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl sticky top-0 z-20">
           <div className="flex items-center gap-2 md:gap-3">
             <a
               href="https://plannotator.ai"
@@ -772,7 +786,7 @@ const App: React.FC = () => {
             )}
 
             <ModeToggle />
-            <Settings taterMode={taterMode} onTaterModeChange={handleTaterModeChange} onIdentityChange={handleIdentityChange} origin={origin} />
+            <Settings taterMode={taterMode} onTaterModeChange={handleTaterModeChange} onIdentityChange={handleIdentityChange} origin={origin} onUIPreferencesChange={setUiPrefs} />
 
             <button
               onClick={() => setIsPanelOpen(!isPanelOpen)}
@@ -802,8 +816,19 @@ const App: React.FC = () => {
 
         {/* Main Content */}
         <div className="flex-1 flex overflow-hidden">
+          {/* Table of Contents */}
+          {uiPrefs.tocEnabled && (
+            <TableOfContents
+              blocks={blocks}
+              annotations={annotations}
+              activeId={activeSection}
+              onNavigate={handleTocNavigate}
+              className="hidden lg:block w-60 sticky top-12 h-[calc(100vh-3rem)] flex-shrink-0"
+            />
+          )}
+
           {/* Document Area */}
-          <main className="flex-1 overflow-y-auto bg-grid">
+          <main ref={containerRef} className="flex-1 overflow-y-auto bg-grid">
             <div className="min-h-full flex flex-col items-center px-4 py-3 md:px-10 md:py-8 xl:px-16">
               {/* Mode Switcher */}
               <div className="w-full max-w-[832px] 2xl:max-w-5xl mb-3 md:mb-4 flex justify-start">
@@ -825,6 +850,7 @@ const App: React.FC = () => {
                 onAddGlobalAttachment={handleAddGlobalAttachment}
                 onRemoveGlobalAttachment={handleRemoveGlobalAttachment}
                 repoInfo={repoInfo}
+                stickyActions={uiPrefs.stickyActionsEnabled}
               />
             </div>
           </main>
