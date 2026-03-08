@@ -14,12 +14,11 @@
  * What to test:
  *
  * WORKTREE FEATURES:
- *   1. Dropdown shows worktrees below a separator
- *   2. Selecting a worktree enters "worktree mode" — dropdown shows
- *      Back to main / Uncommitted / Last commit / vs main
- *   3. "Last commit" in feature-auth shows the committed auth module
- *   4. "Uncommitted" in feature-auth shows only the rate-limit file
- *   5. "Back to main repo" restores the original dropdown
+ *   1. Context dropdown appears above View dropdown, listing available worktrees
+ *   2. Selecting a worktree in Context switches files; pill gets highlighted border
+ *   3. View dropdown (Uncommitted/Last commit/vs main) stays the same in any context
+ *   4. Can switch directly between worktrees without going "back to main" first
+ *   5. Selecting main branch in Context restores the main repo view
  *   6. Empty worktree shows appropriate empty state messages
  *   7. Detached HEAD worktree uses directory name as label
  *
@@ -1075,12 +1074,11 @@ const { patch: rawPatch, label: gitRef, error: diffError } = await runGitDiff(
 console.error("Git context discovered:");
 console.error(`  Current branch: ${gitContext.currentBranch}`);
 console.error(`  Default branch: ${gitContext.defaultBranch}`);
-console.error(`  Diff options:`);
-for (const opt of gitContext.diffOptions) {
-  if (opt.id === "separator") {
-    console.error(`    ────────────────`);
-  } else {
-    console.error(`    ${opt.label} (${opt.id})`);
+console.error(`  Diff options: ${gitContext.diffOptions.map(o => o.label).join(', ')}`);
+if (gitContext.worktrees.length > 0) {
+  console.error(`  Worktrees:`);
+  for (const wt of gitContext.worktrees) {
+    console.error(`    ${wt.branch || wt.path.split('/').pop()} (${wt.path})`);
   }
 }
 console.error("");
@@ -1089,13 +1087,14 @@ console.error("Starting review server...");
 console.error("Browser should open automatically.");
 console.error("");
 console.error("=== WORKTREE TESTS ===");
-console.error("  1. Dropdown shows worktrees below a separator");
-console.error("  2. Select 'feature-auth' → worktree mode (Back / Uncommitted / Last commit / vs main)");
-console.error("  3. 'Uncommitted' shows rate-limit.ts");
-console.error("  4. 'Last commit' shows committed auth module (5 files)");
-console.error("  5. 'Back to main repo' restores original dropdown");
-console.error("  6. 'empty-branch' → worktree mode, all options empty");
-console.error("  7. 'wt-detached' → label uses directory name, not branch");
+console.error("  1. 'Context' dropdown appears above 'View' dropdown listing worktrees");
+console.error("  2. Select 'feature-auth' in Context → highlighted pill, files update");
+console.error("  3. 'Uncommitted' in View shows rate-limit.ts");
+console.error("  4. 'Last commit' in View shows committed auth module (5 files)");
+console.error("  5. Switch Context back to main branch → restores main repo files");
+console.error("  6. Switch directly between worktrees without returning to main");
+console.error("  7. 'empty-branch' context → all View options show empty state");
+console.error("  8. Detached HEAD worktree uses directory name as label");
 console.error("");
 console.error("=== EXPANDABLE DIFF CONTEXT TESTS ===");
 console.error("  8.  registry.ts — 4 disjoint hunks. Between each pair, you should see");

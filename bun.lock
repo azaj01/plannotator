@@ -144,6 +144,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@pierre/diffs": "^1.1.0-beta.19",
+        "@plannotator/shared": "workspace:*",
         "@plannotator/ui": "workspace:*",
         "highlight.js": "^11.11.1",
         "react": "^19.2.3",

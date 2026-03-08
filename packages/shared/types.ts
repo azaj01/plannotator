@@ -8,3 +8,22 @@ export interface EditorAnnotation {
   comment?: string;
   createdAt: number;
 }
+
+// Git diff types shared between server and client
+export interface DiffOption {
+  id: string;
+  label: string;
+}
+
+export interface WorktreeInfo {
+  path: string;
+  branch: string | null;
+  head: string;
+}
+
+export interface GitContext {
+  currentBranch: string;
+  defaultBranch: string;
+  diffOptions: DiffOption[];
+  worktrees: WorktreeInfo[];
+}
