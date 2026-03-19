@@ -193,15 +193,34 @@ export const PlannotatorPlugin: Plugin = async (ctx) => {
       };
     },
 
-    // Strip OpenCode's "STRICTLY FORBIDDEN" plan mode prompt from synthetic
-    // user messages. OpenCode injects these to prevent file edits in plan mode,
-    // but we need the agent to be able to write plan files.
+    // Replace OpenCode's "STRICTLY FORBIDDEN" plan mode prompt with a version
+    // that allows markdown file writing. OpenCode's original blocks ALL file edits,
+    // but we need the agent to write plans, specs, docs, etc.
     "experimental.chat.messages.transform": async (input, output) => {
       for (const message of output.messages) {
         if (message.info.role !== "user") continue;
-        message.parts = message.parts.filter(
-          (part: any) => !(part.type === "text" && part.text?.includes("STRICTLY FORBIDDEN"))
-        );
+        for (const part of message.parts as any[]) {
+          if (part.type !== "text" || !part.text?.includes("STRICTLY FORBIDDEN")) continue;
+          part.text = `<system-reminder>
+# Plan Mode - System Reminder
+
+CRITICAL: Plan mode ACTIVE. You are in a PLANNING phase. The ONLY file modifications
+allowed are writing or editing markdown files (.md) — plans, specs, documentation, etc.
+All other file edits, code modifications, and system changes are STRICTLY FORBIDDEN.
+Do NOT use bash commands to manipulate non-markdown files. Commands may ONLY read/inspect.
+
+## Responsibility
+
+Your responsibility is to think, read, search, and delegate explore agents to construct
+a well-formed plan. Ask the user clarifying questions and surface tradeoffs rather than
+making assumptions about intent. Use submit_plan to submit your plan for user review.
+
+## Important
+
+The user wants a plan, not execution. You MUST NOT edit source code, run non-readonly
+tools (except writing markdown files), or otherwise make changes to the system.
+</system-reminder>`;
+        }
       }
     },
 
