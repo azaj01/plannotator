@@ -1,7 +1,7 @@
 /**
  * Plannotator CLI for Claude Code
  *
- * Supports four modes:
+ * Supports five modes:
  *
  * 1. Plan Review (default, no args):
  *    - Spawned by ExitPlanMode hook
@@ -18,7 +18,12 @@
  *    - Opens any markdown file in the annotation UI
  *    - Outputs structured feedback to stdout
  *
- * 4. Sessions (`plannotator sessions`):
+ * 4. Archive (`plannotator archive`):
+ *    - Opens read-only browser for saved plan decisions
+ *    - Lists plans from ~/.plannotator/plans/ with status badges
+ *    - Done button closes the browser
+ *
+ * 5. Sessions (`plannotator sessions`):
  *    - Lists active Plannotator server sessions
  *    - `--open [N]` reopens a session in the browser
  *    - `--clean` removes stale session files
@@ -440,6 +445,41 @@ if (args[0] === "sessions") {
   server.stop();
 
   console.log(result.feedback || "No feedback provided.");
+  process.exit(0);
+
+} else if (args[0] === "archive") {
+  // ============================================
+  // ARCHIVE BROWSER MODE
+  // ============================================
+
+  const archiveProject = (await detectProjectName()) ?? "_unknown";
+
+  const server = await startPlannotatorServer({
+    plan: "",
+    origin: "claude-code",
+    mode: "archive",
+    sharingEnabled,
+    shareBaseUrl,
+    htmlContent: planHtmlContent,
+    onReady: (url, isRemote, port) => {
+      handleServerReady(url, isRemote, port);
+    },
+  });
+
+  registerSession({
+    pid: process.pid,
+    port: server.port,
+    url: server.url,
+    mode: "archive",
+    project: archiveProject,
+    startedAt: new Date().toISOString(),
+    label: `archive-${archiveProject}`,
+  });
+
+  await server.waitForDone!();
+
+  await Bun.sleep(500);
+  server.stop();
   process.exit(0);
 
 } else {

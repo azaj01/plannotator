@@ -45,7 +45,7 @@ export interface UseLinkedDocReturn {
   /** Whether a fetch is in progress */
   isLoading: boolean;
   /** Open a linked document by path (saves plan state, fetches doc, swaps) */
-  open: (docPath: string, buildUrl?: (path: string) => string) => Promise<void>;
+  open: (docPath: string, buildUrl?: (path: string) => string, targetTab?: string) => Promise<void>;
   /** Return to the plan (caches doc annotations, restores plan state) */
   back: () => void;
   /** Dismiss the current error */
@@ -86,7 +86,7 @@ export function useLinkedDoc(options: UseLinkedDocOptions): UseLinkedDocReturn {
   );
 
   const open = useCallback(
-    async (docPath: string, buildUrl?: (path: string) => string) => {
+    async (docPath: string, buildUrl?: (path: string) => string, targetTab?: string) => {
       setIsLoading(true);
       setError(null);
 
@@ -133,7 +133,7 @@ export function useLinkedDoc(options: UseLinkedDocOptions): UseLinkedDocReturn {
         setGlobalAttachments(cached?.globalAttachments ?? []);
         setSelectedAnnotationId(null);
         setLinkedDoc({ filepath: data.filepath! });
-        sidebar.open("toc");
+        sidebar.open(targetTab ?? "toc");
 
         // Re-apply cached annotations after DOM settles
         if (cached?.annotations.length) {

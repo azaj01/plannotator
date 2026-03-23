@@ -35,6 +35,14 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Generate Pi extension shared copies
+        run: |
+          cd apps/pi-extension
+          for f in feedback-templates review-core storage draft project; do
+            src="../../packages/shared/$f.ts"
+            printf '// @generated — DO NOT EDIT. Source: packages/shared/%s.ts\n' "$f" | cat - "$src" > "$f.ts"
+          done
+
       - name: Run tests
         run: bun test
 

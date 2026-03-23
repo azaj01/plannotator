@@ -419,6 +419,44 @@ export default function plannotator(pi: ExtensionAPI): void {
     },
   });
 
+  pi.registerCommand("plannotator-archive", {
+    description: "Browse saved plan decisions",
+    handler: async (_args, ctx) => {
+      if (!planHtmlContent) {
+        ctx.ui.notify("Archive UI not available. Run 'bun run build' in the pi-extension directory.", "error");
+        return;
+      }
+
+      ctx.ui.notify("Opening plan archive...", "info");
+
+      let server: PlanServerResult;
+      try {
+        server = await startPlanReviewServer({
+          plan: "",
+          htmlContent: planHtmlContent,
+          origin: "pi",
+          mode: "archive",
+          sharingEnabled: process.env.PLANNOTATOR_SHARE !== "disabled",
+          shareBaseUrl: process.env.PLANNOTATOR_SHARE_URL || undefined,
+          pasteApiUrl: process.env.PLANNOTATOR_PASTE_URL || undefined,
+        });
+      } catch (err) {
+        ctx.ui.notify(`Failed to start archive: ${getStartupErrorMessage(err)}`, "error");
+        return;
+      }
+
+      const browserResult = openBrowser(server.url);
+      if (browserResult.isRemote) {
+        ctx.ui.notify(`Remote session. Open manually: ${browserResult.url}`, "info");
+      }
+
+      await server.waitForDone!();
+      await new Promise((r) => setTimeout(r, 1500));
+      server.stop();
+      ctx.ui.notify("Archive browser closed.", "info");
+    },
+  });
+
   pi.registerShortcut(Key.ctrlAlt("p"), {
     description: "Toggle plannotator",
     handler: async (ctx) => togglePlanMode(ctx),

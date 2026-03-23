@@ -1,17 +1,16 @@
 /**
- * VersionBrowser — Version list + plan browser
+ * VersionBrowser — Version list for plan diff
  *
  * Shows all versions of the current plan and allows selecting
  * which version to diff against.
  */
 
-import React, { useEffect, useState } from "react";
-import type { VersionInfo, VersionEntry, ProjectPlan } from "../../hooks/usePlanDiff";
+import React, { useEffect } from "react";
+import type { VersionInfo, VersionEntry } from "../../hooks/usePlanDiff";
 
 interface VersionBrowserProps {
   versionInfo: VersionInfo | null;
   versions: VersionEntry[];
-  projectPlans: ProjectPlan[];
   selectedBaseVersion: number | null;
   onSelectBaseVersion: (version: number) => void;
   isPlanDiffActive: boolean;
@@ -21,12 +20,8 @@ interface VersionBrowserProps {
   isSelectingVersion: boolean;
   fetchingVersion: number | null;
   onFetchVersions: () => void;
-  onFetchProjectPlans: () => void;
 }
 
-/**
- * Format a timestamp as a relative time string.
- */
 function relativeTime(timestamp: string): string {
   if (!timestamp) return "";
   const now = Date.now();
@@ -43,7 +38,6 @@ function relativeTime(timestamp: string): string {
 export const VersionBrowser: React.FC<VersionBrowserProps> = ({
   versionInfo,
   versions,
-  projectPlans,
   selectedBaseVersion,
   onSelectBaseVersion,
   isPlanDiffActive,
@@ -53,10 +47,7 @@ export const VersionBrowser: React.FC<VersionBrowserProps> = ({
   isSelectingVersion,
   fetchingVersion,
   onFetchVersions,
-  onFetchProjectPlans,
 }) => {
-  const [showOtherPlans, setShowOtherPlans] = useState(false);
-
   // Fetch version list once versionInfo is available
   useEffect(() => {
     if (versionInfo && versions.length === 0) {
@@ -145,62 +136,6 @@ export const VersionBrowser: React.FC<VersionBrowserProps> = ({
           )}
         </div>
       )}
-
-      {/* Other plans (collapsible) */}
-      <div className="border-t border-border/50 pt-2">
-        <button
-          onClick={() => {
-            setShowOtherPlans(!showOtherPlans);
-            if (!showOtherPlans && projectPlans.length === 0) {
-              onFetchProjectPlans();
-            }
-          }}
-          className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
-        >
-          <svg
-            className={`w-2.5 h-2.5 transition-transform ${showOtherPlans ? "rotate-90" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M9 5l7 7-7 7"
-            />
-          </svg>
-          Other Plans
-        </button>
-
-        {showOtherPlans && (
-          <div className="mt-2 space-y-1">
-            <div className="text-[10px] text-muted-foreground italic px-2 py-1.5 leading-relaxed">
-              Viewing and comparing against other plans in this project is coming soon.
-            </div>
-            {projectPlans.length === 0 ? (
-              <div className="text-xs text-muted-foreground py-1">
-                No other plans found.
-              </div>
-            ) : (
-              projectPlans.map((plan) => (
-                <div
-                  key={plan.slug}
-                  className="px-2 py-1.5 rounded text-xs opacity-60"
-                >
-                  <div className="font-medium text-foreground truncate" title={plan.slug}>
-                    {plan.slug.replace(/-\d{4}-\d{2}-\d{2}$/, "")}
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
-                    <span>{plan.versions} version{plan.versions !== 1 ? "s" : ""}</span>
-                    <span>{relativeTime(plan.lastModified)}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
     </div>
   );
 };

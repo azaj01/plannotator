@@ -23,9 +23,14 @@ dist-ssr
 apps/opencode-plugin/plannotator.html
 apps/opencode-plugin/review-editor.html
 
-# Pi extension build artifacts (generated from hook/review dist)
+# Pi extension build artifacts (generated from hook/review dist + shared packages)
 apps/pi-extension/plannotator.html
 apps/pi-extension/review-editor.html
+apps/pi-extension/storage.ts
+apps/pi-extension/draft.ts
+apps/pi-extension/project.ts
+apps/pi-extension/feedback-templates.ts
+apps/pi-extension/review-core.ts
 
 # Editor directories and files
 .vscode/*

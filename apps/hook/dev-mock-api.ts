@@ -237,19 +237,6 @@ export function devMockApi(): Plugin {
           return;
         }
 
-        if (req.url === '/api/plan/history') {
-          res.setHeader('Content-Type', 'application/json');
-          res.end(JSON.stringify({
-            project: 'demo',
-            plans: [{
-              slug: 'implementation-plan-real-time-collab',
-              versions: 3,
-              lastModified: new Date(now - 60_000).toISOString(),
-            }],
-          }));
-          return;
-        }
-
         next();
       });
     },

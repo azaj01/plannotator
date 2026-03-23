@@ -26,10 +26,13 @@
     "README.md",
     "plannotator.html",
     "review-editor.html",
-    "feedback-templates.ts"
+    "feedback-templates.ts",
+    "storage.ts",
+    "draft.ts",
+    "project.ts"
   ],
   "scripts": {
-    "build": "cp ../hook/dist/index.html plannotator.html && cp ../hook/dist/review.html review-editor.html && cp ../../packages/shared/feedback-templates.ts feedback-templates.ts && cp ../../packages/shared/review-core.ts review-core.ts",
+    "build": "cp ../hook/dist/index.html plannotator.html && cp ../hook/dist/review.html review-editor.html && for f in feedback-templates review-core storage draft project; do src=\"../../packages/shared/$f.ts\"; printf '// @generated — DO NOT EDIT. Source: packages/shared/%s.ts\\n' \"$f\" | cat - \"$src\" > \"$f.ts\"; done",
     "prepublishOnly": "cd ../.. && bun run build:pi"
   },
   "peerDependencies": {

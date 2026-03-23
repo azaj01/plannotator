@@ -68,6 +68,7 @@ interface ViewerProps {
   maxWidth?: number;
   /** Label for the copy button (default: "Copy plan") */
   copyLabel?: string;
+  archiveInfo?: { status: 'approved' | 'denied' | 'unknown'; timestamp: string; title: string } | null;
 }
 
 export interface ViewerHandle {
@@ -135,6 +136,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   linkedDocInfo,
   imageBaseDir,
   copyLabel,
+  archiveInfo,
 }, ref) => {
   const [copied, setCopied] = useState(false);
   const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null);
@@ -431,8 +433,8 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
         } ${inputMethod === 'pinpoint' ? 'cursor-crosshair' : ''}`}
         style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
       >
-        {/* Repo info + plan diff badge + demo badge + linked doc badge - top left */}
-        {(repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo) && (
+        {/* Repo info + plan diff badge + demo badge + linked doc badge + archive badge - top left */}
+        {(repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || archiveInfo) && (
           <div className="absolute top-3 left-3 md:top-4 md:left-5 flex flex-col items-start gap-1 text-[9px] text-muted-foreground/50 font-mono">
             {repoInfo && !linkedDocInfo && (
               <div className="flex items-center gap-1.5">
@@ -461,6 +463,26 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-amber-500/15 text-amber-600 dark:text-amber-400">
                 Demo
               </span>
+            )}
+            {archiveInfo && !linkedDocInfo && (
+              <div className="flex items-center gap-1.5">
+                <span className={`px-1.5 py-0.5 rounded ${
+                  archiveInfo.status === 'approved'
+                    ? 'bg-green-500/15 text-green-600 dark:text-green-400'
+                    : archiveInfo.status === 'denied'
+                      ? 'bg-red-500/15 text-red-600 dark:text-red-400'
+                      : 'bg-muted/50 text-muted-foreground'
+                }`}>
+                  {archiveInfo.status === 'approved' ? 'Approved' : archiveInfo.status === 'denied' ? 'Denied' : 'Unknown'}
+                </span>
+                {archiveInfo.timestamp && (
+                  <span className="px-1.5 py-0.5 bg-muted/50 rounded" title={archiveInfo.timestamp}>
+                    {new Date(archiveInfo.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {' '}
+                    {new Date(archiveInfo.timestamp).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                  </span>
+                )}
+              </div>
             )}
             {linkedDocInfo && (
               <div className="flex items-center gap-1.5">

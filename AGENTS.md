@@ -154,10 +154,12 @@ Send Annotations → feedback sent to agent session
 
 | Endpoint              | Method | Purpose                                    |
 | --------------------- | ------ | ------------------------------------------ |
-| `/api/plan`           | GET    | Returns `{ plan, origin, previousPlan, versionInfo }` |
+| `/api/plan`           | GET    | Returns `{ plan, origin, previousPlan, versionInfo }` (plan mode) or `{ plan, origin, mode: "archive", archivePlans }` (archive mode) |
 | `/api/plan/version`   | GET    | Fetch specific version (`?v=N`)            |
 | `/api/plan/versions`  | GET    | List all versions of current plan          |
-| `/api/plan/history`   | GET    | List all plans in current project          |
+| `/api/archive/plans`  | GET    | List archived plan decisions (`?customPath=`) |
+| `/api/archive/plan`   | GET    | Fetch archived plan content (`?filename=&customPath=`) |
+| `/api/done`           | POST   | Close archive browser (archive mode only)  |
 | `/api/approve`        | POST   | Approve plan (body: planSave, agentSwitch, obsidian, bear, feedback) |
 | `/api/deny`           | POST   | Deny plan (body: feedback, planSave)       |
 | `/api/image`          | GET    | Serve image by path query param            |
@@ -210,9 +212,9 @@ Runs as a separate service on port `19433` (self-hosted) or as a Cloudflare Work
 
 Every plan is automatically saved to `~/.plannotator/history/{project}/{slug}/` on arrival, before the user sees the UI. Versions are numbered sequentially (`001.md`, `002.md`, etc.). The slug is derived from the plan's first `# Heading` + today's date via `generateSlug()`, scoped by project name (git repo or cwd). Same heading on the same day = same slug = same plan being iterated on. Identical resubmissions are deduplicated (no new file if content matches the latest version).
 
-This powers the version history API (`/api/plan/version`, `/api/plan/versions`, `/api/plan/history`) and the plan diff system.
+This powers the version history API (`/api/plan/version`, `/api/plan/versions`) and the plan diff system.
 
-History saves independently of the `planSave` user setting (which controls decision snapshots in `~/.plannotator/plans/`). Storage functions live in `packages/server/storage.ts`, with Node-compatible duplicates in `apps/pi-extension/server.ts`. Slug format: `{sanitized-heading}-YYYY-MM-DD` (heading first for readability).
+History saves independently of the `planSave` user setting (which controls decision snapshots in `~/.plannotator/plans/`). Storage functions live in `packages/shared/storage.ts` (runtime-agnostic, re-exported by `packages/server/storage.ts`). Pi copies the shared files at build time. Slug format: `{sanitized-heading}-YYYY-MM-DD` (heading first for readability).
 
 ## Plan Diff
 

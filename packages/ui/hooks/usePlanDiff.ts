@@ -23,12 +23,6 @@ export interface VersionEntry {
   timestamp: string;
 }
 
-export interface ProjectPlan {
-  slug: string;
-  versions: number;
-  lastModified: string;
-}
-
 export interface UsePlanDiffReturn {
   /** The version we're comparing against */
   diffBaseVersion: number | null;
@@ -44,8 +38,6 @@ export interface UsePlanDiffReturn {
   selectBaseVersion: (version: number) => Promise<void>;
   /** All versions of the current plan */
   versions: VersionEntry[];
-  /** All plans in the project */
-  projectPlans: ProjectPlan[];
   /** Whether version list is loading */
   isLoadingVersions: boolean;
   /** Whether a version selection fetch is in progress */
@@ -54,8 +46,6 @@ export interface UsePlanDiffReturn {
   fetchingVersion: number | null;
   /** Fetch the version list for the sidebar */
   fetchVersions: () => Promise<void>;
-  /** Fetch the project plan list for the sidebar */
-  fetchProjectPlans: () => Promise<void>;
 }
 
 export function usePlanDiff(
@@ -70,7 +60,6 @@ export function usePlanDiff(
     versionInfo && versionInfo.version > 1 ? versionInfo.version - 1 : null
   );
   const [versions, setVersions] = useState<VersionEntry[]>([]);
-  const [projectPlans, setProjectPlans] = useState<ProjectPlan[]>([]);
   const [isLoadingVersions, setIsLoadingVersions] = useState(false);
   const [isSelectingVersion, setIsSelectingVersion] = useState(false);
   const [fetchingVersion, setFetchingVersion] = useState<number | null>(null);
@@ -142,20 +131,6 @@ export function usePlanDiff(
     }
   }, []);
 
-  const fetchProjectPlans = useCallback(async () => {
-    try {
-      const res = await fetch("/api/plan/history");
-      if (!res.ok) return;
-      const data = (await res.json()) as {
-        project: string;
-        plans: ProjectPlan[];
-      };
-      setProjectPlans(data.plans);
-    } catch {
-      // Failed to fetch project plans
-    }
-  }, []);
-
   return {
     diffBaseVersion,
     diffBasePlan,
@@ -164,11 +139,9 @@ export function usePlanDiff(
     hasPreviousVersion,
     selectBaseVersion,
     versions,
-    projectPlans,
     isLoadingVersions,
     isSelectingVersion,
     fetchingVersion,
     fetchVersions,
-    fetchProjectPlans,
   };
 }

@@ -9,8 +9,8 @@
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { execSync, spawn, spawnSync } from "node:child_process";
 import os from "node:os";
-import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync, unlinkSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join, basename, resolve as resolvePath } from "node:path";
 import { Readable } from "node:stream";
 import {
@@ -27,6 +27,18 @@ import {
   runGitDiff as runGitDiffCore,
   validateFilePath,
 } from "./review-core.js";
+import {
+  generateSlug,
+  saveToHistory,
+  getPlanVersion,
+  getVersionCount,
+  listVersions,
+  listArchivedPlans,
+  readArchivedPlan,
+  type ArchivedPlan,
+} from "./storage.js";
+import { contentHash, saveDraft, loadDraft, deleteDraft } from "./draft.js";
+import { sanitizeTag } from "./project.js";
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -349,33 +361,7 @@ export function openBrowser(url: string): { opened: boolean; isRemote?: boolean;
   }
 }
 
-// ── Version History (Node-compatible, duplicated from packages/server) ──
-
-function sanitizeTag(name: string): string | null {
-  if (!name || typeof name !== "string") return null;
-  const sanitized = name
-    .toLowerCase()
-    .trim()
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 30);
-  return sanitized.length >= 2 ? sanitized : null;
-}
-
-function extractFirstHeading(markdown: string): string | null {
-  const match = markdown.match(/^#\s+(.+)$/m);
-  if (!match) return null;
-  return match[1].trim();
-}
-
-function generateSlug(plan: string): string {
-  const date = new Date().toISOString().split("T")[0];
-  const heading = extractFirstHeading(plan);
-  const slug = heading ? sanitizeTag(heading) : null;
-  return slug ? `${slug}-${date}` : `plan-${date}`;
-}
+// ── Pi-specific helpers ──────────────────────────────────────────────────
 
 function detectProjectName(): string {
   try {
@@ -439,167 +425,6 @@ function getRepoInfo(): { display: string; branch?: string } | null {
   return null;
 }
 
-function getHistoryDir(project: string, slug: string): string {
-  const historyDir = join(os.homedir(), ".plannotator", "history", project, slug);
-  mkdirSync(historyDir, { recursive: true });
-  return historyDir;
-}
-
-function getNextVersionNumber(historyDir: string): number {
-  try {
-    const entries = readdirSync(historyDir);
-    let max = 0;
-    for (const entry of entries) {
-      const match = entry.match(/^(\d+)\.md$/);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (num > max) max = num;
-      }
-    }
-    return max + 1;
-  } catch {
-    return 1;
-  }
-}
-
-function saveToHistory(
-  project: string,
-  slug: string,
-  plan: string,
-): { version: number; path: string; isNew: boolean } {
-  const historyDir = getHistoryDir(project, slug);
-  const nextVersion = getNextVersionNumber(historyDir);
-  if (nextVersion > 1) {
-    const latestPath = join(historyDir, `${String(nextVersion - 1).padStart(3, "0")}.md`);
-    try {
-      const existing = readFileSync(latestPath, "utf-8");
-      if (existing === plan) {
-        return { version: nextVersion - 1, path: latestPath, isNew: false };
-      }
-    } catch { /* proceed with saving */ }
-  }
-  const fileName = `${String(nextVersion).padStart(3, "0")}.md`;
-  const filePath = join(historyDir, fileName);
-  writeFileSync(filePath, plan, "utf-8");
-  return { version: nextVersion, path: filePath, isNew: true };
-}
-
-function getPlanVersion(
-  project: string,
-  slug: string,
-  version: number,
-): string | null {
-  const historyDir = join(os.homedir(), ".plannotator", "history", project, slug);
-  const fileName = `${String(version).padStart(3, "0")}.md`;
-  const filePath = join(historyDir, fileName);
-  try {
-    return readFileSync(filePath, "utf-8");
-  } catch {
-    return null;
-  }
-}
-
-function getVersionCount(project: string, slug: string): number {
-  const historyDir = join(os.homedir(), ".plannotator", "history", project, slug);
-  try {
-    const entries = readdirSync(historyDir);
-    return entries.filter((e) => /^\d+\.md$/.test(e)).length;
-  } catch {
-    return 0;
-  }
-}
-
-function listVersions(
-  project: string,
-  slug: string,
-): Array<{ version: number; timestamp: string }> {
-  const historyDir = join(os.homedir(), ".plannotator", "history", project, slug);
-  try {
-    const entries = readdirSync(historyDir);
-    const versions: Array<{ version: number; timestamp: string }> = [];
-    for (const entry of entries) {
-      const match = entry.match(/^(\d+)\.md$/);
-      if (match) {
-        const version = parseInt(match[1], 10);
-        const filePath = join(historyDir, entry);
-        try {
-          const stat = statSync(filePath);
-          versions.push({ version, timestamp: stat.mtime.toISOString() });
-        } catch {
-          versions.push({ version, timestamp: "" });
-        }
-      }
-    }
-    return versions.sort((a, b) => a.version - b.version);
-  } catch {
-    return [];
-  }
-}
-
-function listProjectPlans(
-  project: string,
-): Array<{ slug: string; versions: number; lastModified: string }> {
-  const projectDir = join(os.homedir(), ".plannotator", "history", project);
-  try {
-    const entries = readdirSync(projectDir, { withFileTypes: true });
-    const plans: Array<{ slug: string; versions: number; lastModified: string }> = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const slugDir = join(projectDir, entry.name);
-      const files = readdirSync(slugDir).filter((f) => /^\d+\.md$/.test(f));
-      if (files.length === 0) continue;
-      let latest = 0;
-      for (const file of files) {
-        try {
-          const mtime = statSync(join(slugDir, file)).mtime.getTime();
-          if (mtime > latest) latest = mtime;
-        } catch { /* skip */ }
-      }
-      plans.push({
-        slug: entry.name,
-        versions: files.length,
-        lastModified: latest ? new Date(latest).toISOString() : "",
-      });
-    }
-    return plans.sort((a, b) => b.lastModified.localeCompare(a.lastModified));
-  } catch {
-    return [];
-  }
-}
-
-function getDraftDir(): string {
-  const dir = join(os.homedir(), ".plannotator", "drafts");
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-function contentHash(content: string): string {
-  return createHash("sha256").update(content).digest("hex").slice(0, 16);
-}
-
-function saveDraft(key: string, data: object): void {
-  writeFileSync(join(getDraftDir(), `${key}.json`), JSON.stringify(data), "utf-8");
-}
-
-function loadDraft(key: string): object | null {
-  const filePath = join(getDraftDir(), `${key}.json`);
-  try {
-    if (!existsSync(filePath)) return null;
-    return JSON.parse(readFileSync(filePath, "utf-8"));
-  } catch {
-    return null;
-  }
-}
-
-function deleteDraft(key: string): void {
-  const filePath = join(getDraftDir(), `${key}.json`);
-  try {
-    if (existsSync(filePath)) unlinkSync(filePath);
-  } catch {
-    // Ignore delete failures
-  }
-}
-
 // ── Plan Review Server ──────────────────────────────────────────────────
 
 export interface PlanServerResult {
@@ -607,6 +432,7 @@ export interface PlanServerResult {
   portSource: "env" | "remote-default" | "random";
   url: string;
   waitForDecision: () => Promise<{ approved: boolean; feedback?: string }>;
+  waitForDone?: () => Promise<void>;
   stop: () => void;
 }
 
@@ -617,6 +443,8 @@ export async function startPlanReviewServer(options: {
   sharingEnabled?: boolean;
   shareBaseUrl?: string;
   pasteApiUrl?: string;
+  mode?: "archive";
+  customPlanPath?: string | null;
 }): Promise<PlanServerResult> {
   const sharingEnabled =
     options.sharingEnabled ?? process.env.PLANNOTATOR_SHARE !== "disabled";
@@ -625,29 +453,59 @@ export async function startPlanReviewServer(options: {
   const pasteApiUrl =
     (options.pasteApiUrl ?? process.env.PLANNOTATOR_PASTE_URL) || undefined;
 
-  // Version history
-  const slug = generateSlug(options.plan);
-  const project = detectProjectName();
-  const historyResult = saveToHistory(project, slug, options.plan);
-  const previousPlan =
-    historyResult.version > 1
-      ? getPlanVersion(project, slug, historyResult.version - 1)
-      : null;
-  const versionInfo = {
-    version: historyResult.version,
-    totalVersions: getVersionCount(project, slug),
-    project,
-  };
+  // --- Archive mode setup ---
+  let archivePlans: ArchivedPlan[] = [];
+  let initialArchivePlan = "";
+  let resolveDone: (() => void) | undefined;
+  let donePromise: Promise<void> | undefined;
+
+  if (options.mode === "archive") {
+    archivePlans = listArchivedPlans(options.customPlanPath ?? undefined);
+    initialArchivePlan = archivePlans.length > 0
+      ? readArchivedPlan(archivePlans[0].filename, options.customPlanPath ?? undefined) ?? ""
+      : "";
+    donePromise = new Promise<void>((resolve) => { resolveDone = resolve; });
+  }
+
+  // --- Plan review mode setup (skip in archive mode) ---
+  const slug = options.mode !== "archive" ? generateSlug(options.plan) : "";
+  const project = options.mode !== "archive" ? detectProjectName() : "";
+  const historyResult = options.mode !== "archive"
+    ? saveToHistory(project, slug, options.plan)
+    : { version: 0, path: "", isNew: false };
+  const previousPlan = options.mode !== "archive" && historyResult.version > 1
+    ? getPlanVersion(project, slug, historyResult.version - 1)
+    : null;
+  const versionInfo = options.mode !== "archive"
+    ? { version: historyResult.version, totalVersions: getVersionCount(project, slug), project }
+    : null;
 
   let resolveDecision!: (result: { approved: boolean; feedback?: string }) => void;
   const decisionPromise = new Promise<{ approved: boolean; feedback?: string }>((r) => {
     resolveDecision = r;
   });
 
+  // Lazy cache for in-session archive tab
+  let cachedArchivePlans: ArchivedPlan[] | null = null;
+
   const server = createServer(async (req, res) => {
     const url = new URL(req.url!, `http://localhost`);
 
-    if (url.pathname === "/api/plan/version") {
+    if (url.pathname === "/api/done" && req.method === "POST") {
+      resolveDone?.();
+      json(res, { ok: true });
+    } else if (url.pathname === "/api/archive/plans") {
+      const customPath = url.searchParams.get("customPath") || undefined;
+      if (!cachedArchivePlans) cachedArchivePlans = listArchivedPlans(customPath);
+      json(res, { plans: cachedArchivePlans });
+    } else if (url.pathname === "/api/archive/plan") {
+      const filename = url.searchParams.get("filename");
+      const customPath = url.searchParams.get("customPath") || undefined;
+      if (!filename) { json(res, { error: "Missing filename" }, 400); return; }
+      const markdown = readArchivedPlan(filename, customPath);
+      if (!markdown) { json(res, { error: "Not found" }, 404); return; }
+      json(res, { markdown, filepath: filename });
+    } else if (url.pathname === "/api/plan/version") {
       const vParam = url.searchParams.get("v");
       if (!vParam) {
         json(res, { error: "Missing v parameter" }, 400);
@@ -666,10 +524,15 @@ export async function startPlanReviewServer(options: {
       json(res, { plan: content, version: v });
     } else if (url.pathname === "/api/plan/versions") {
       json(res, { project, slug, versions: listVersions(project, slug) });
-    } else if (url.pathname === "/api/plan/history") {
-      json(res, { project, plans: listProjectPlans(project) });
     } else if (url.pathname === "/api/plan") {
-      json(res, { plan: options.plan, origin: options.origin ?? "pi", previousPlan, versionInfo, sharingEnabled, shareBaseUrl, pasteApiUrl });
+      if (options.mode === "archive") {
+        json(res, {
+          plan: initialArchivePlan, origin: options.origin ?? "pi",
+          mode: "archive", archivePlans, sharingEnabled, shareBaseUrl, pasteApiUrl,
+        });
+      } else {
+        json(res, { plan: options.plan, origin: options.origin ?? "pi", previousPlan, versionInfo, sharingEnabled, shareBaseUrl, pasteApiUrl });
+      }
     } else if (url.pathname === "/api/approve" && req.method === "POST") {
       const body = await parseBody(req);
       resolveDecision({ approved: true, feedback: body.feedback as string | undefined });
@@ -690,6 +553,7 @@ export async function startPlanReviewServer(options: {
     portSource,
     url: `http://localhost:${port}`,
     waitForDecision: () => decisionPromise,
+    ...(donePromise && { waitForDone: () => donePromise }),
     stop: () => server.close(),
   };
 }
