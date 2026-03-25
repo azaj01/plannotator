@@ -41,6 +41,7 @@ import { handleImage, handleUpload, handleAgents, handleServerReady, handleDraft
 import { contentHash, deleteDraft } from "./draft";
 import { handleDoc, handleObsidianVaults, handleObsidianFiles, handleObsidianDoc, handleFileBrowserFiles } from "./reference-handlers";
 import { createEditorAnnotationHandler } from "./editor-annotations";
+import { isWSL } from "./browser";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -119,6 +120,7 @@ export async function startPlannotatorServer(
 
   const isRemote = isRemoteSession();
   const configuredPort = getServerPort();
+  const wslFlag = await isWSL();
 
   // --- Archive mode setup ---
   let archivePlans: ArchivedPlan[] = [];
@@ -262,9 +264,10 @@ export async function startPlannotatorServer(
                 archivePlans,
                 sharingEnabled,
                 shareBaseUrl,
+                isWSL: wslFlag,
               });
             }
-            return Response.json({ plan, origin, permissionMode, sharingEnabled, shareBaseUrl, pasteApiUrl, repoInfo, previousPlan, versionInfo, projectRoot: process.cwd() });
+            return Response.json({ plan, origin, permissionMode, sharingEnabled, shareBaseUrl, pasteApiUrl, repoInfo, previousPlan, versionInfo, projectRoot: process.cwd(), isWSL: wslFlag });
           }
 
           // API: Serve a linked markdown document

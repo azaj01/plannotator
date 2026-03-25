@@ -17,6 +17,7 @@ import { contentHash, deleteDraft } from "./draft";
 import { createEditorAnnotationHandler } from "./editor-annotations";
 import { type PRMetadata, type PRReviewFileComment, fetchPRFileContent, fetchPRContext, submitPRReview, getPRUser, prRefFromMetadata, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
 import { createAIEndpoints, ProviderRegistry, SessionManager, createProvider, type AIEndpoints, type PiSDKConfig } from "@plannotator/ai";
+import { isWSL } from "./browser";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -189,6 +190,7 @@ export async function startReviewServer(
 
   const isRemote = isRemoteSession();
   const configuredPort = getServerPort();
+  const wslFlag = await isWSL();
 
   // Detect repo info (cached for this session)
   // In PR mode, derive from metadata instead of local git
@@ -238,6 +240,7 @@ export async function startReviewServer(
               sharingEnabled,
               shareBaseUrl,
               repoInfo,
+              isWSL: wslFlag,
               ...(isPRMode && { prMetadata, platformUser }),
               ...(currentError && { error: currentError }),
             });

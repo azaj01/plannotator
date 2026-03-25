@@ -41,7 +41,7 @@ async function tryVscodeIpc(url: string): Promise<boolean> {
 /**
  * Check if running in WSL (Windows Subsystem for Linux)
  */
-async function isWSL(): Promise<boolean> {
+export async function isWSL(): Promise<boolean> {
   if (process.platform !== "linux") {
     return false;
   }

@@ -4,17 +4,18 @@ import { isWindows } from '../utils/platform';
 
 const PI_INSTALL_COMMAND = 'pi install npm:@plannotator/pi-extension';
 
-function getInstallCommand(): string {
-  return isWindows
+function getInstallCommand(isWSL: boolean): string {
+  return isWindows && !isWSL
     ? 'powershell -c "irm https://plannotator.ai/install.ps1 | iex"'
     : 'curl -fsSL https://plannotator.ai/install.sh | bash';
 }
 
 interface UpdateBannerProps {
   origin?: 'claude-code' | 'opencode' | 'pi' | 'codex' | null;
+  isWSL?: boolean;
 }
 
-export const UpdateBanner: React.FC<UpdateBannerProps> = ({ origin }) => {
+export const UpdateBanner: React.FC<UpdateBannerProps> = ({ origin, isWSL = false }) => {
   const updateInfo = useUpdateCheck();
   const [copied, setCopied] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -25,7 +26,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({ origin }) => {
   const effectiveOrigin = previewOrigin || origin;
   const isPi = effectiveOrigin === 'pi';
   const isOpenCode = effectiveOrigin === 'opencode';
-  const installCommand = isPi ? PI_INSTALL_COMMAND : getInstallCommand();
+  const installCommand = isPi ? PI_INSTALL_COMMAND : getInstallCommand(isWSL);
 
   if (!updateInfo?.updateAvailable || dismissed) return null;
 

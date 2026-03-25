@@ -85,6 +85,7 @@ const App: React.FC = () => {
   const [uiPrefs, setUiPrefs] = useState(() => getUIPreferences());
   const [isApiMode, setIsApiMode] = useState(false);
   const [origin, setOrigin] = useState<'claude-code' | 'opencode' | 'pi' | 'codex' | null>(null);
+  const [isWSL, setIsWSL] = useState(false);
   const [globalAttachments, setGlobalAttachments] = useState<ImageAttachment[]>([]);
   const [annotateMode, setAnnotateMode] = useState(false);
   const [annotateSource, setAnnotateSource] = useState<'file' | 'message' | 'folder' | null>(null);
@@ -385,7 +386,7 @@ const App: React.FC = () => {
         if (!res.ok) throw new Error('Not in API mode');
         return res.json();
       })
-      .then((data: { plan: string; origin?: 'claude-code' | 'opencode' | 'pi' | 'codex'; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive'; filePath?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string }) => {
+      .then((data: { plan: string; origin?: 'claude-code' | 'opencode' | 'pi' | 'codex'; mode?: 'annotate' | 'annotate-last' | 'annotate-folder' | 'archive'; filePath?: string; sharingEnabled?: boolean; shareBaseUrl?: string; pasteApiUrl?: string; repoInfo?: { display: string; branch?: string }; previousPlan?: string | null; versionInfo?: { version: number; totalVersions: number; project: string }; archivePlans?: ArchivedPlan[]; projectRoot?: string; isWSL?: boolean }) => {
         if (data.mode === 'archive') {
           // Archive mode: show first archived plan or clear demo content
           setMarkdown(data.plan || '');
@@ -442,6 +443,9 @@ const App: React.FC = () => {
           }
           // Load saved permission mode preference
           setPermissionMode(getPermissionModeSettings().mode);
+        }
+        if (data.isWSL) {
+          setIsWSL(true);
         }
       })
       .catch(() => {
@@ -1591,7 +1595,7 @@ const App: React.FC = () => {
         />
 
         {/* Update notification */}
-        <UpdateBanner origin={origin} />
+        <UpdateBanner origin={origin} isWSL={isWSL} />
 
         {/* Image Annotator for pasted images */}
         <ImageAnnotator

@@ -17,6 +17,7 @@ import { handleImage, handleUpload, handleServerReady, handleDraftSave, handleDr
 import { handleDoc, handleFileBrowserFiles } from "./reference-handlers";
 import { contentHash, deleteDraft } from "./draft";
 import { dirname } from "path";
+import { isWSL } from "./browser";
 
 // Re-export utilities
 export { isRemoteSession, getServerPort } from "./remote";
@@ -95,6 +96,7 @@ export async function startAnnotateServer(
 
   const isRemote = isRemoteSession();
   const configuredPort = getServerPort();
+  const wslFlag = await isWSL();
   const draftKey = contentHash(markdown);
 
   // Detect repo info (cached for this session)
@@ -135,6 +137,7 @@ export async function startAnnotateServer(
               pasteApiUrl,
               repoInfo,
               projectRoot: folderPath || process.cwd(),
+              isWSL: wslFlag,
             });
           }
 

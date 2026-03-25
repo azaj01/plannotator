@@ -100,6 +100,7 @@ const ReviewApp: React.FC = () => {
   const [viewedFiles, setViewedFiles] = useState<Set<string>>(new Set());
   const [hideViewedFiles, setHideViewedFiles] = useState(false);
   const [origin, setOrigin] = useState<'opencode' | 'claude-code' | 'pi' | null>(null);
+  const [isWSL, setIsWSL] = useState(false);
   const [diffType, setDiffType] = useState<string>('uncommitted');
   const [gitContext, setGitContext] = useState<GitContext | null>(null);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
@@ -387,6 +388,7 @@ const ReviewApp: React.FC = () => {
         prMetadata?: PRMetadata;
         platformUser?: string;
         error?: string;
+        isWSL?: boolean;
       }) => {
         const apiFiles = parseDiffToFiles(data.rawPatch);
         setDiffData({
@@ -407,6 +409,7 @@ const ReviewApp: React.FC = () => {
         if (data.prMetadata) setPrMetadata(data.prMetadata);
         if (data.platformUser) setPlatformUser(data.platformUser);
         if (data.error) setDiffError(data.error);
+        if (data.isWSL) setIsWSL(true);
       })
       .catch(() => {
         // Not in API mode - use demo content
@@ -1543,7 +1546,7 @@ const ReviewApp: React.FC = () => {
         />
 
         {/* Update notification */}
-        <UpdateBanner origin={origin} />
+        <UpdateBanner origin={origin} isWSL={isWSL} />
 
         {/* GitHub general comment dialog */}
         {platformCommentDialog && (
