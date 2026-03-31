@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { ImageAttachment } from '../types';
 import { AttachmentsButton } from './AttachmentsButton';
 import { submitHint } from '../utils/platform';
+import { useDraggable } from '../hooks/useDraggable';
 
 interface CommentPopoverProps {
   /** Element to anchor the popover near (re-reads position on scroll) */
@@ -51,10 +52,15 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
   const [position, setPosition] = useState<{ top: number; left: number; flipAbove: boolean; width: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const { dragPosition, dragHandleProps, wasDragged, reset: resetDrag } = useDraggable(popoverRef);
 
-  // Track anchor position on scroll/resize (popover mode only)
+  // Reset drag when anchor changes (new annotation) or mode switches
+  useEffect(() => { resetDrag(); }, [anchorEl, resetDrag]);
+  useEffect(() => { if (mode === 'popover') resetDrag(); }, [mode, resetDrag]);
+
+  // Track anchor position on scroll/resize (popover mode only, not after user drag)
   useEffect(() => {
-    if (mode !== 'popover') return;
+    if (mode !== 'popover' || wasDragged) return;
 
     const update = () => {
       setPosition(computePosition(anchorEl.getBoundingClientRect()));
@@ -67,7 +73,7 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
       window.removeEventListener('scroll', update, true);
       window.removeEventListener('resize', update);
     };
-  }, [anchorEl, mode]);
+  }, [anchorEl, mode, wasDragged]);
 
   // Focus textarea on mount and mode changes
   useEffect(() => {
@@ -221,15 +227,18 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
     <div
       ref={popoverRef}
       className="fixed z-[100] bg-popover border border-border rounded-xl shadow-2xl flex flex-col"
-      style={{
-        top: position.top,
-        left: position.left,
-        width: position.width,
-        ...(position.flipAbove ? { transform: 'translateY(-100%)' } : {}),
-        animation: position.flipAbove
-          ? 'comment-popover-in-above 0.15s ease-out'
-          : 'comment-popover-in 0.15s ease-out',
-      }}
+      style={dragPosition
+        ? { top: dragPosition.top, left: dragPosition.left, width: position.width }
+        : {
+            top: position.top,
+            left: position.left,
+            width: position.width,
+            ...(position.flipAbove ? { transform: 'translateY(-100%)' } : {}),
+            animation: position.flipAbove
+              ? 'comment-popover-in-above 0.15s ease-out'
+              : 'comment-popover-in 0.15s ease-out',
+          }
+      }
       onPointerDown={(e) => e.stopPropagation()}
     >
       <style>{`
@@ -243,8 +252,8 @@ export const CommentPopover: React.FC<CommentPopoverProps> = ({
         }
       `}</style>
 
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50">
+      {/* Header (draggable) */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border/50" {...dragHandleProps}>
         <span className="text-xs text-muted-foreground truncate max-w-[260px]">
           {headerLabel}
         </span>

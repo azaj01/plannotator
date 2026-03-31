@@ -17,6 +17,8 @@ interface AskAIInputProps {
   onViewResponse?: (questionId: string) => void;
   /** Toggle back to comment mode */
   onSwitchToComment?: () => void;
+  /** Props to make the header a drag handle */
+  dragHandleProps?: React.HTMLAttributes<HTMLDivElement> & { style?: React.CSSProperties };
 }
 
 export const AskAIInput: React.FC<AskAIInputProps> = ({
@@ -29,6 +31,7 @@ export const AskAIInput: React.FC<AskAIInputProps> = ({
   aiHistory,
   onViewResponse,
   onSwitchToComment,
+  dragHandleProps,
 }) => {
   const [question, setQuestion] = useState(initialText);
 
@@ -40,7 +43,7 @@ export const AskAIInput: React.FC<AskAIInputProps> = ({
 
   return (
     <div className="w-80">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2" {...dragHandleProps}>
         <span className="text-xs text-muted-foreground flex items-center gap-1.5">
           <SparklesIcon className="w-3 h-3 text-primary" />
           Ask AI · {formatLineRange(lineStart, lineEnd)}

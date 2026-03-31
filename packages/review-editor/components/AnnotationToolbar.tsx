@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ToolbarState } from '../hooks/useAnnotationToolbar';
 import { useTabIndent } from '../hooks/useTabIndent';
 import { formatLineRange } from '../utils/formatLineRange';
 import { AskAIInput } from './AskAIInput';
 import { SparklesIcon } from './SparklesIcon';
 import type { AIChatEntry } from '../hooks/useAIChat';
+import { useDraggable } from '@plannotator/ui/hooks/useDraggable';
 
 interface AnnotationToolbarProps {
   toolbarState: ToolbarState;
@@ -52,6 +53,12 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
 }) => {
   const handleTabIndent = useTabIndent(setSuggestedCode);
   const [askAIMode, setAskAIMode] = useState(false);
+  const { dragPosition, dragHandleProps, wasDragged, reset: resetDrag } = useDraggable(toolbarRef);
+
+  // Reset drag when toolbar reopens for a new selection
+  useEffect(() => {
+    resetDrag();
+  }, [toolbarState.range.start, toolbarState.range.end, toolbarState.range.side, resetDrag]);
 
   const handleAskAIClick = () => {
     // If user already typed text in the comment box, send it directly as an AI question
@@ -78,13 +85,16 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
     <div
       ref={toolbarRef}
       className="review-toolbar"
-      style={{
-        position: 'fixed',
-        top: Math.min(toolbarState.position.top, window.innerHeight - 200),
-        left: Math.max(150, Math.min(toolbarState.position.left, window.innerWidth - 150)),
-        transform: 'translateX(-50%)',
-        zIndex: 1000,
-      }}
+      style={dragPosition
+        ? { position: 'fixed', top: dragPosition.top, left: dragPosition.left, zIndex: 1000 }
+        : {
+            position: 'fixed',
+            top: Math.min(toolbarState.position.top, window.innerHeight - 200),
+            left: Math.max(150, Math.min(toolbarState.position.left, window.innerWidth - 150)),
+            transform: 'translateX(-50%)',
+            zIndex: 1000,
+          }
+      }
     >
       {askAIMode ? (
         <AskAIInput
@@ -96,10 +106,11 @@ export const AnnotationToolbar: React.FC<AnnotationToolbarProps> = ({
           aiHistory={aiHistoryMessages}
           onViewResponse={onViewAIResponse}
           onSwitchToComment={() => setAskAIMode(false)}
+          dragHandleProps={dragHandleProps}
         />
       ) : (
         <div className="w-80">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-2" {...dragHandleProps}>
             <span className="text-xs text-muted-foreground">
               {isEditing ? 'Edit annotation' : formatLineRange(toolbarState.range.start, toolbarState.range.end)}
             </span>
