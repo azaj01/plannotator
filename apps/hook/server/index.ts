@@ -38,6 +38,7 @@
  *    - Parses events.jsonl from session state
  *
  * Global flags:
+ *   --help             - Show top-level usage information
  *   --browser <name>   - Override which browser to open (e.g. "Google Chrome")
  *
  * Environment variables:
@@ -71,6 +72,12 @@ import type { Origin } from "@plannotator/shared/agents";
 import { findSessionLogsForCwd, resolveSessionLogByPpid, findSessionLogsByAncestorWalk, getLastRenderedMessage, type RenderedMessage } from "./session-log";
 import { findCodexRolloutByThreadId, getLastCodexMessage } from "./codex-session";
 import { findCopilotPlanContent, findCopilotSessionForCwd, getLastCopilotMessage } from "./copilot-session";
+import {
+  formatInteractiveNoArgClarification,
+  formatTopLevelHelp,
+  isInteractiveNoArgInvocation,
+  isTopLevelHelpInvocation,
+} from "./cli";
 import path from "path";
 
 // Embed the built HTML at compile time
@@ -90,6 +97,16 @@ const browserIdx = args.indexOf("--browser");
 if (browserIdx !== -1 && args[browserIdx + 1]) {
   process.env.PLANNOTATOR_BROWSER = args[browserIdx + 1];
   args.splice(browserIdx, 2);
+}
+
+if (isTopLevelHelpInvocation(args)) {
+  console.log(formatTopLevelHelp());
+  process.exit(0);
+}
+
+if (isInteractiveNoArgInvocation(args, process.stdin.isTTY)) {
+  console.log(formatInteractiveNoArgClarification());
+  process.exit(0);
 }
 
 // Ensure session cleanup on exit
