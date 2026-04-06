@@ -35,6 +35,16 @@ export interface AgentJobInfo {
   error?: string;
   /** The actual command that was spawned (for display/debug). */
   command: string[];
+  /** Working directory where the process was spawned. */
+  cwd?: string;
+  /** The review prompt text (system + user message). Stored separately from command for providers that use stdin. */
+  prompt?: string;
+  /** Review summary set by the agent on completion. */
+  summary?: {
+    correctness: string;
+    explanation: string;
+    confidence: number;
+  };
 }
 
 export interface AgentCapability {
@@ -59,6 +69,7 @@ export type AgentJobEvent =
   | { type: "job:started"; job: AgentJobInfo }
   | { type: "job:updated"; job: AgentJobInfo }
   | { type: "job:completed"; job: AgentJobInfo }
+  | { type: "job:log"; jobId: string; delta: string }
   | { type: "jobs:cleared" };
 
 // ---------------------------------------------------------------------------

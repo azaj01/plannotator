@@ -74,6 +74,7 @@ export interface ReviewState {
   isPRContextLoading: boolean;
   prContextError: string | null;
   fetchPRContext: () => void;
+  platformUser: string | null;
 
   // Diff navigation
   openDiffFile: (filePath: string) => void;

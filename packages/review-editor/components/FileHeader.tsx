@@ -79,8 +79,8 @@ export const FileHeader: React.FC<FileHeaderProps> = ({
   return (
     <div
       ref={headerRef}
-      className="flex-shrink-0 px-3 bg-card border-b border-border flex items-center justify-between gap-2"
-      style={{ height: '30px' }}
+      className="flex-shrink-0 px-3 border-b border-border/50 flex items-center justify-between gap-2"
+      style={{ height: 'var(--panel-header-h)' }}
     >
       <div className="min-w-0 flex flex-1 items-center">
         <span className="min-w-0 flex items-center text-xs font-semibold leading-none whitespace-nowrap" title={filePath}>

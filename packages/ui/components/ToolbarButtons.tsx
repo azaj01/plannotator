@@ -5,7 +5,9 @@ interface FeedbackButtonProps {
   disabled?: boolean;
   isLoading?: boolean;
   label?: string;
+  shortLabel?: string;
   loadingLabel?: string;
+  shortLoadingLabel?: string;
   title?: string;
   muted?: boolean;
 }
@@ -15,7 +17,9 @@ export const FeedbackButton: React.FC<FeedbackButtonProps> = ({
   disabled = false,
   isLoading = false,
   label = 'Send Feedback',
+  shortLabel,
   loadingLabel = 'Sending...',
+  shortLoadingLabel,
   title = 'Send Feedback',
   muted = false,
 }) => (
@@ -34,7 +38,14 @@ export const FeedbackButton: React.FC<FeedbackButtonProps> = ({
     <svg className="w-4 h-4 md:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
     </svg>
-    <span className="hidden md:inline">{isLoading ? loadingLabel : label}</span>
+    {shortLabel ? (
+      <>
+        <span className="hidden md:inline lg:hidden">{isLoading ? (shortLoadingLabel ?? loadingLabel) : shortLabel}</span>
+        <span className="hidden lg:inline">{isLoading ? loadingLabel : label}</span>
+      </>
+    ) : (
+      <span className="hidden md:inline">{isLoading ? loadingLabel : label}</span>
+    )}
   </button>
 );
 

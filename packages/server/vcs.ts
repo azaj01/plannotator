@@ -151,7 +151,7 @@ export type {
   WorktreeInfo,
 } from "./git";
 
-export { parseWorktreeDiffType, validateFilePath } from "./git";
+export { parseWorktreeDiffType, validateFilePath, runtime as gitRuntime } from "./git";
 
 // --- Detection cache ---
 

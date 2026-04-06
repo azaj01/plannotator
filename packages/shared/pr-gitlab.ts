@@ -342,6 +342,7 @@ export async function fetchGlMRContext(
     mergeStateStatus,
     comments: notes,
     reviews,
+    reviewThreads: [],  // TODO: parse DiffNote positions from notes for thread support
     checks,
     linkedIssues,
   };

@@ -56,6 +56,20 @@ import {
 	submitPRReview,
 } from "./pr.js";
 import { getRepoInfo } from "./project.js";
+import {
+	CODEX_REVIEW_SYSTEM_PROMPT,
+	buildCodexReviewUserMessage,
+	buildCodexCommand,
+	generateOutputPath,
+	parseCodexOutput,
+	transformReviewFindings,
+} from "../generated/codex-review.js";
+import {
+	CLAUDE_REVIEW_PROMPT,
+	buildClaudeCommand,
+	parseClaudeStreamOutput,
+	transformClaudeFindings,
+} from "../generated/claude-review.js";
 
 export interface ReviewServerResult {
 	port: number;
@@ -154,15 +168,84 @@ export async function startReviewServer(options: {
 
 	// Agent jobs — background process manager (late-binds serverUrl via getter)
 	let serverUrl = "";
+	// Worktree-aware cwd resolver — shared by getCwd, buildCommand, and onJobComplete
+	function resolveAgentCwd(): string {
+		if (currentDiffType.startsWith("worktree:")) {
+			const parsed = parseWorktreeDiffType(currentDiffType);
+			if (parsed) return parsed.path;
+		}
+		return options.gitContext?.cwd ?? process.cwd();
+	}
 	const agentJobs = createAgentJobHandler({
 		mode: "review",
 		getServerUrl: () => serverUrl,
-		getCwd: () => {
-			if (currentDiffType.startsWith("worktree:")) {
-				const parsed = parseWorktreeDiffType(currentDiffType);
-				if (parsed) return parsed.path;
+		getCwd: resolveAgentCwd,
+
+		async buildCommand(provider) {
+			const cwd = resolveAgentCwd();
+			const hasLocalAccess = !!options.gitContext;
+			const userMessage = buildCodexReviewUserMessage(
+				currentPatch,
+				currentDiffType,
+				{ defaultBranch: options.gitContext?.defaultBranch, hasLocalAccess },
+				options.prMetadata,
+			);
+
+			if (provider === "codex") {
+				const outputPath = generateOutputPath();
+				const prompt = CODEX_REVIEW_SYSTEM_PROMPT + "\n\n---\n\n" + userMessage;
+				const command = await buildCodexCommand({ cwd, outputPath, prompt });
+				return { command, outputPath, prompt, label: "Codex Review" };
 			}
-			return options.gitContext?.cwd ?? process.cwd();
+
+			if (provider === "claude") {
+				const prompt = CLAUDE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
+				const { command, stdinPrompt } = buildClaudeCommand(prompt);
+				return { command, stdinPrompt, prompt, cwd, label: "Claude Code Review", captureStdout: true };
+			}
+
+			return null;
+		},
+
+		async onJobComplete(job, meta) {
+			const cwd = resolveAgentCwd();
+
+			if (job.provider === "codex" && meta.outputPath) {
+				const output = await parseCodexOutput(meta.outputPath);
+				if (!output) return;
+
+				job.summary = {
+					correctness: output.overall_correctness,
+					explanation: output.overall_explanation,
+					confidence: output.overall_confidence_score,
+				};
+
+				if (output.findings.length > 0) {
+					const annotations = transformReviewFindings(output.findings, job.source, cwd, "Codex");
+					const result = externalAnnotations.addAnnotations({ annotations });
+					if ("error" in result) console.error(`[codex-review] addAnnotations error:`, result.error);
+				}
+				return;
+			}
+
+			if (job.provider === "claude" && meta.stdout) {
+				const output = parseClaudeStreamOutput(meta.stdout);
+				if (!output) return;
+
+				const total = output.summary.important + output.summary.nit + output.summary.pre_existing;
+				job.summary = {
+					correctness: output.summary.important === 0 ? "Correct" : "Issues Found",
+					explanation: `${output.summary.important} important, ${output.summary.nit} nit, ${output.summary.pre_existing} pre-existing`,
+					confidence: total === 0 ? 1.0 : Math.max(0, 1.0 - (output.summary.important * 0.2)),
+				};
+
+				if (output.findings.length > 0) {
+					const annotations = transformClaudeFindings(output.findings, job.source, cwd);
+					const result = externalAnnotations.addAnnotations({ annotations });
+					if ("error" in result) console.error(`[claude-review] addAnnotations error:`, result.error);
+				}
+				return;
+			}
 		},
 	});
 	const sharingEnabled =

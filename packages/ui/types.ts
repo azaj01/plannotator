@@ -76,7 +76,16 @@ export interface CodeAnnotation {
   createdAt: number;
   author?: string;
   source?: string; // External tool identifier (e.g., "eslint") — set when annotation comes from external API
+  severity?: 'important' | 'nit' | 'pre_existing'; // Agent review severity (Claude)
+  reasoning?: string; // Validation chain — how the issue was confirmed (Claude)
 }
+
+/** Severity display styles — shared between agent detail panel and inline diff annotations. */
+export const SEVERITY_STYLES: Record<string, { dot: string; label: string }> = {
+  important: { dot: 'bg-destructive', label: 'Important' },
+  nit: { dot: 'bg-amber-500', label: 'Nit' },
+  pre_existing: { dot: 'bg-muted-foreground', label: 'Pre-existing' },
+};
 
 // For @pierre/diffs integration
 export interface DiffAnnotationMetadata {
@@ -86,6 +95,8 @@ export interface DiffAnnotationMetadata {
   suggestedCode?: string;
   originalCode?: string;
   author?: string;
+  severity?: 'important' | 'nit' | 'pre_existing';
+  reasoning?: string;
   // AI marker fields (set when kind === 'ai-marker')
   kind?: 'annotation' | 'ai-marker';
   questionId?: string;

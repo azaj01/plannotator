@@ -45,7 +45,7 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
   getAnnotationCount,
   stagedFiles,
 }) => {
-  const paddingLeft = 8 + node.depth * 12;
+  const paddingLeft = 4 + node.depth * 8;
 
   if (node.type === 'folder') {
     if (!hasVisibleChildren(node, viewedFiles, activeFileIndex, hideViewedFiles)) {
@@ -113,7 +113,7 @@ export const FileTreeNodeItem: React.FC<FileTreeNodeProps> = ({
       onClick={() => onSelectFile(node.fileIndex!)}
       onDoubleClick={() => onDoubleClickFile?.(node.fileIndex!)}
       className={`file-tree-item w-full text-left group ${isActive ? 'active' : ''} ${annotationCount > 0 ? 'has-annotations' : ''} ${isStaged ? 'staged' : ''}`}
-      style={{ paddingLeft: paddingLeft + 15 }}
+      style={{ paddingLeft }}
     >
       <div className="flex items-center gap-1.5 flex-1 min-w-0">
         <span

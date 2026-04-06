@@ -1,5 +1,5 @@
 import React from 'react';
-import { DiffAnnotationMetadata } from '@plannotator/ui/types';
+import { SEVERITY_STYLES, DiffAnnotationMetadata } from '@plannotator/ui/types';
 import { SuggestionBlock } from './SuggestionBlock';
 import { renderInlineMarkdown } from '../utils/renderInlineMarkdown';
 
@@ -19,6 +19,8 @@ export const InlineAnnotation: React.FC<InlineAnnotationProps> = ({
   onEdit,
   onDelete,
 }) => {
+  const severity = metadata.severity ? SEVERITY_STYLES[metadata.severity] : null;
+
   return (
     <div
       className="review-comment"
@@ -26,7 +28,12 @@ export const InlineAnnotation: React.FC<InlineAnnotationProps> = ({
       onClick={() => onSelect(metadata.annotationId)}
     >
       <div className="review-comment-header">
-        {metadata.author && <span className="text-xs text-muted-foreground">{metadata.author}</span>}
+        <div className="flex items-center gap-1.5">
+          {severity && (
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${severity.dot}`} title={severity.label} />
+          )}
+          {metadata.author && <span className="text-xs text-muted-foreground">{metadata.author}</span>}
+        </div>
         <div className="review-comment-actions">
           <button
             className="review-comment-action"
@@ -56,6 +63,11 @@ export const InlineAnnotation: React.FC<InlineAnnotationProps> = ({
       </div>
       {metadata.text && (
         <div className="review-comment-body">{renderInlineMarkdown(metadata.text)}</div>
+      )}
+      {metadata.reasoning && (
+        <div className="review-comment-reasoning text-[11px] text-muted-foreground/60 leading-relaxed mt-1.5">
+          {metadata.reasoning}
+        </div>
       )}
       {metadata.suggestedCode && (
         <div className="mt-2">

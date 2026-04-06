@@ -49,6 +49,14 @@ export function createExternalAnnotationHandler(mode: "plan" | "review") {
 	});
 
 	return {
+		/** Push annotations directly into the store (bypasses HTTP, reuses same validation). */
+		addAnnotations(body: unknown): { ids: string[] } | { error: string } {
+			const parsed = transform(body);
+			if ("error" in parsed) return { error: parsed.error };
+			const created = store.add(parsed.annotations);
+			return { ids: created.map((a: { id: string }) => a.id) };
+		},
+
 		async handle(
 			req: IncomingMessage,
 			res: ServerResponse,

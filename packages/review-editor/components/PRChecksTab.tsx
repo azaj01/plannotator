@@ -94,7 +94,7 @@ export const PRChecksTab: React.FC<PRChecksTabProps> = ({ context }) => {
   const mergeableConflict = !isMerged && !isClosed && context.mergeable === 'CONFLICTING';
 
   return (
-    <div className="p-3 space-y-4">
+    <div className="px-8 py-4 space-y-4 max-w-2xl">
       {/* Merge readiness */}
       <div className="space-y-2">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -104,7 +104,7 @@ export const PRChecksTab: React.FC<PRChecksTabProps> = ({ context }) => {
         <div className="space-y-1.5">
           {/* Review decision */}
           {decisionStyle && (
-            <div className={`flex items-center gap-2 px-2 py-1.5 rounded-md ${decisionStyle.bg}`}>
+            <div className={`flex items-center gap-2 px-2 py-1.5 rounded ${decisionStyle.bg}`}>
               <span className={`text-xs font-medium ${decisionStyle.text}`}>
                 {decisionStyle.label}
               </span>
@@ -112,7 +112,7 @@ export const PRChecksTab: React.FC<PRChecksTabProps> = ({ context }) => {
           )}
 
           {/* Merge state */}
-          <div className={`flex items-center gap-2 px-2 py-1.5 rounded-md ${mergeStyle.bg}`}>
+          <div className={`flex items-center gap-2 px-2 py-1.5 rounded ${mergeStyle.bg}`}>
             <span className={`text-xs font-medium ${mergeStyle.text}`}>
               {mergeableConflict ? 'Has merge conflicts' : mergeStyle.label}
             </span>
@@ -134,23 +134,26 @@ export const PRChecksTab: React.FC<PRChecksTabProps> = ({ context }) => {
             </span>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-4">
             {Array.from(groupedChecks.entries()).map(([workflow, checks]) => (
               <div key={workflow}>
-                <div className="text-[10px] font-medium text-muted-foreground mb-1">{workflow}</div>
-                <div className="space-y-0.5">
+                <div className="text-[10px] font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider">{workflow}</div>
+                <div className="space-y-1">
                   {checks.map((check, i) => (
                     <a
                       key={`${check.name}-${i}`}
                       href={check.detailsUrl || undefined}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-2 py-1 rounded hover:bg-muted/50 transition-colors group"
+                      className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/30 transition-colors group cursor-pointer"
                     >
                       <CheckIcon check={check} />
-                      <span className="text-xs text-foreground/80 truncate group-hover:text-foreground">
+                      <span className="text-xs text-primary/70 truncate group-hover:text-primary group-hover:underline">
                         {check.name}
                       </span>
+                      <svg className="w-3 h-3 text-muted-foreground/30 ml-auto flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
                     </a>
                   ))}
                 </div>

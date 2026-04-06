@@ -33,6 +33,8 @@ export interface ExternalAnnotationHandler {
     url: URL,
     options?: { disableIdleTimeout?: () => void },
   ) => Promise<Response | null>;
+  /** Push annotations directly into the store (bypasses HTTP, reuses same validation). */
+  addAnnotations: (body: unknown) => { ids: string[] } | { error: string };
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +70,13 @@ export function createExternalAnnotationHandler(
   });
 
   return {
+    addAnnotations(body: unknown): { ids: string[] } | { error: string } {
+      const parsed = transform(body);
+      if ("error" in parsed) return { error: parsed.error };
+      const created = store.add(parsed.annotations);
+      return { ids: created.map((a) => a.id) };
+    },
+
     async handle(
       req: Request,
       url: URL,

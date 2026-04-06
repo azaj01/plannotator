@@ -8,6 +8,7 @@
  * Server-agnostic: takes a mode, server URL getter, and cwd getter.
  */
 
+import { formatClaudeLogEvent } from "./claude-review";
 import {
   type AgentJobInfo,
   type AgentJobEvent,
@@ -56,6 +57,26 @@ export interface AgentJobHandlerOptions {
   getServerUrl: () => string;
   /** Returns the working directory for spawned processes. */
   getCwd: () => string;
+  /**
+   * Build the command server-side for a given provider.
+   * Return an object with the command to spawn (and optional output path for result ingestion).
+   * Return null to reject or fall through to frontend-supplied command.
+   */
+  buildCommand?: (provider: string) => Promise<{
+    command: string[];
+    outputPath?: string;
+    captureStdout?: boolean;
+    stdinPrompt?: string;
+    cwd?: string;
+    label?: string;
+    /** The full prompt text for display in the detail panel. */
+    prompt?: string;
+  } | null>;
+  /**
+   * Called after a job process exits with exit code 0.
+   * Use for result ingestion (e.g., reading an output file and pushing annotations).
+   */
+  onJobComplete?: (job: AgentJobInfo, meta: { outputPath?: string; stdout?: string; cwd?: string }) => void | Promise<void>;
 }
 
 export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJobHandler {
@@ -63,6 +84,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
 
   // --- State ---
   const jobs = new Map<string, { info: AgentJobInfo; proc: ReturnType<typeof Bun.spawn> | null }>();
+  const jobOutputPaths = new Map<string, string>();
   const subscribers = new Set<ReadableStreamDefaultController>();
   const encoder = new TextEncoder();
   let version = 0;
@@ -71,7 +93,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
   const capabilities: AgentCapability[] = [
     { id: "claude", name: "Claude Code", available: !!Bun.which("claude") },
     { id: "codex", name: "Codex CLI", available: !!Bun.which("codex") },
-    { id: "shell", name: "Shell Command", available: true },
   ];
   const capabilitiesResponse: AgentCapabilities = {
     mode,
@@ -97,6 +118,8 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
     provider: string,
     command: string[],
     label: string,
+    outputPath?: string,
+    spawnOptions?: { captureStdout?: boolean; stdinPrompt?: string; cwd?: string; prompt?: string },
   ): AgentJobInfo {
     const id = crypto.randomUUID();
     const source = jobSource(id);
@@ -109,14 +132,21 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
       status: "starting",
       startedAt: Date.now(),
       command,
+      cwd: getCwd(),
     };
 
     let proc: ReturnType<typeof Bun.spawn> | null = null;
 
     try {
+      const spawnCwd = spawnOptions?.cwd ?? getCwd();
+      const captureStdout = spawnOptions?.captureStdout ?? false;
+
+      const hasStdinPrompt = !!spawnOptions?.stdinPrompt;
+
       proc = Bun.spawn(command, {
-        cwd: getCwd(),
-        stdout: "ignore",
+        cwd: spawnCwd,
+        stdin: hasStdinPrompt ? "pipe" : undefined,
+        stdout: captureStdout ? "pipe" : "ignore",
         stderr: "pipe",
         env: {
           ...process.env,
@@ -125,19 +155,50 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
         },
       });
 
+      // Write prompt to stdin and close (for providers that read prompt from stdin)
+      if (hasStdinPrompt && proc.stdin) {
+        const sink = proc.stdin as import("bun").FileSink;
+        sink.write(spawnOptions!.stdinPrompt!);
+        sink.end();
+      }
+
       info.status = "running";
+      info.cwd = spawnCwd;
+      if (spawnOptions?.prompt) info.prompt = spawnOptions.prompt;
       jobs.set(id, { info, proc });
+      if (outputPath) jobOutputPaths.set(id, outputPath);
+      if (spawnOptions?.cwd) jobOutputPaths.set(`${id}:cwd`, spawnOptions.cwd);
       broadcast({ type: "job:started", job: { ...info } });
 
-      // Drain stderr continuously to prevent pipe-full deadlock
+      // Drain stderr: capture tail for error reporting + broadcast live log deltas
       let stderrBuf = "";
+      let logPending = "";
+      let logFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
       if (proc.stderr && typeof proc.stderr !== "number") {
         (async () => {
           try {
-            const reader = proc!.stderr as ReadableStream;
+            const reader = proc!.stderr as unknown as AsyncIterable<Uint8Array>;
             for await (const chunk of reader) {
               const text = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
               stderrBuf = (stderrBuf + text).slice(-500);
+              logPending += text;
+
+              if (!logFlushTimer) {
+                logFlushTimer = setTimeout(() => {
+                  if (logPending) {
+                    broadcast({ type: "job:log", jobId: id, delta: logPending });
+                    logPending = "";
+                  }
+                  logFlushTimer = null;
+                }, 200);
+              }
+            }
+            // Flush remaining on stream close
+            if (logFlushTimer) { clearTimeout(logFlushTimer); logFlushTimer = null; }
+            if (logPending) {
+              broadcast({ type: "job:log", jobId: id, delta: logPending });
+              logPending = "";
             }
           } catch {
             // Stream closed or already consumed
@@ -145,8 +206,46 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
         })();
       }
 
+      // Drain stdout when capturing (for providers that return results on stdout)
+      let stdoutBuf = "";
+      const stdoutDone = (captureStdout && proc.stdout && typeof proc.stdout !== "number")
+        ? (async () => {
+            try {
+              const reader = proc!.stdout as unknown as AsyncIterable<Uint8Array>;
+              for await (const chunk of reader) {
+                const text = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk);
+                stdoutBuf += text;
+
+                // Forward JSONL lines as log events (skip result events)
+                const lines = text.split('\n');
+                for (const line of lines) {
+                  if (!line.trim()) continue;
+                  // Claude: format JSONL into readable text
+                  if (provider === "claude") {
+                    const formatted = formatClaudeLogEvent(line);
+                    if (formatted !== null) {
+                      broadcast({ type: "job:log", jobId: id, delta: formatted + '\n' });
+                    }
+                    continue;
+                  }
+                  try {
+                    const event = JSON.parse(line);
+                    if (event.type === 'result') continue; // handled in onJobComplete
+                  } catch { /* not JSON — forward as raw log */ }
+                  broadcast({ type: "job:log", jobId: id, delta: line + '\n' });
+                }
+              }
+            } catch {
+              // Stream closed
+            }
+          })()
+        : Promise.resolve();
+
       // Monitor process exit
-      proc.exited.then((exitCode) => {
+      proc.exited.then(async (exitCode) => {
+        // Wait for stdout to drain — grace period in case the pipe doesn't close cleanly.
+        // The process is dead; if the stream hasn't flushed in 2s, the runtime has a bug.
+        await Promise.race([stdoutDone, new Promise(r => setTimeout(r, 2000))]);
         const entry = jobs.get(id);
         if (!entry || isTerminalStatus(entry.info.status)) return;
 
@@ -158,7 +257,26 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
           entry.info.error = stderrBuf;
         }
 
+        // Ingest results before broadcasting completion so annotations arrive first
+        const outputPath = jobOutputPaths.get(id);
+        const jobCwd = jobOutputPaths.get(`${id}:cwd`);
+        if (exitCode === 0 && options.onJobComplete) {
+          try {
+            await options.onJobComplete(entry.info, {
+              outputPath,
+              stdout: captureStdout ? stdoutBuf : undefined,
+              cwd: jobCwd,
+            });
+          } catch {
+            // Result ingestion failure shouldn't prevent job completion broadcast
+          }
+        }
+        jobOutputPaths.delete(id);
+        jobOutputPaths.delete(`${id}:cwd`);
+
         broadcast({ type: "job:completed", job: { ...entry.info } });
+      }).catch(() => {
+        // Guard against unhandled rejection from unexpected runtime errors
       });
     } catch (err) {
       // Spawn itself failed (e.g., command not found).
@@ -189,6 +307,8 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
 
     entry.info.status = "killed";
     entry.info.endedAt = Date.now();
+    jobOutputPaths.delete(id);
+    jobOutputPaths.delete(`${id}:cwd`);
     broadcast({ type: "job:completed", job: { ...entry.info } });
     return true;
   }
@@ -283,10 +403,11 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
       if (url.pathname === JOBS && req.method === "POST") {
         try {
           const body = await req.json();
-          const provider = typeof body.provider === "string" ? body.provider : "shell";
-          const rawCommand = Array.isArray(body.command) ? body.command : [];
-          const command = rawCommand.filter((c: unknown): c is string => typeof c === "string");
-          const label = typeof body.label === "string" ? body.label : `${provider} agent`;
+          const provider = typeof body.provider === "string" ? body.provider : "";
+          let rawCommand = Array.isArray(body.command) ? body.command : [];
+          let command = rawCommand.filter((c: unknown): c is string => typeof c === "string");
+          let label = typeof body.label === "string" ? body.label : `${provider} agent`;
+          let outputPath: string | undefined;
 
           // Validate provider is a known, available capability
           const cap = capabilities.find((c) => c.id === provider);
@@ -297,6 +418,24 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             );
           }
 
+          // Try server-side command building for known providers
+          let captureStdout = false;
+          let stdinPrompt: string | undefined;
+          let spawnCwd: string | undefined;
+          let promptText: string | undefined;
+          if (options.buildCommand) {
+            const built = await options.buildCommand(provider);
+            if (built) {
+              command = built.command;
+              outputPath = built.outputPath;
+              captureStdout = built.captureStdout ?? false;
+              stdinPrompt = built.stdinPrompt;
+              spawnCwd = built.cwd;
+              promptText = built.prompt;
+              if (built.label) label = built.label;
+            }
+          }
+
           if (command.length === 0) {
             return Response.json(
               { error: 'Missing "command" array' },
@@ -304,7 +443,12 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions): AgentJob
             );
           }
 
-          const job = spawnJob(provider, command, label);
+          const job = spawnJob(provider, command, label, outputPath, {
+            captureStdout,
+            stdinPrompt,
+            cwd: spawnCwd,
+            prompt: promptText,
+          });
           return Response.json({ job }, { status: 201 });
         } catch {
           return Response.json({ error: "Invalid JSON" }, { status: 400 });

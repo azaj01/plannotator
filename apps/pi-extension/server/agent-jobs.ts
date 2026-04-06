@@ -20,6 +20,7 @@ import {
 	AGENT_HEARTBEAT_COMMENT,
 	AGENT_HEARTBEAT_INTERVAL_MS,
 } from "../generated/agent-jobs.js";
+import { formatClaudeLogEvent } from "../generated/claude-review.js";
 import { json, parseBody } from "./helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +54,18 @@ export interface AgentJobHandlerOptions {
 	mode: "plan" | "review" | "annotate";
 	getServerUrl: () => string;
 	getCwd: () => string;
+	/** Server-side command builder for known providers (codex, claude). */
+	buildCommand?: (provider: string) => Promise<{
+		command: string[];
+		outputPath?: string;
+		captureStdout?: boolean;
+		stdinPrompt?: string;
+		cwd?: string;
+		prompt?: string;
+		label?: string;
+	} | null>;
+	/** Called when a job completes successfully — parse results and push annotations. */
+	onJobComplete?: (job: AgentJobInfo, meta: { outputPath?: string; stdout?: string; cwd?: string }) => void | Promise<void>;
 }
 
 export function createAgentJobHandler(options: AgentJobHandlerOptions) {
@@ -60,6 +73,7 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 
 	// --- State ---
 	const jobs = new Map<string, { info: AgentJobInfo; proc: ChildProcess | null }>();
+	const jobOutputPaths = new Map<string, string>();
 	const subscribers = new Set<ServerResponse>();
 	let version = 0;
 
@@ -67,7 +81,6 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 	const capabilities: AgentCapability[] = [
 		{ id: "claude", name: "Claude Code", available: whichCmd("claude") },
 		{ id: "codex", name: "Codex CLI", available: whichCmd("codex") },
-		{ id: "shell", name: "Shell Command", available: true },
 	];
 	const capabilitiesResponse: AgentCapabilities = {
 		mode,
@@ -93,6 +106,8 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 		provider: string,
 		command: string[],
 		label: string,
+		outputPath?: string,
+		spawnOptions?: { captureStdout?: boolean; stdinPrompt?: string; cwd?: string; prompt?: string },
 	): AgentJobInfo {
 		const id = crypto.randomUUID();
 		const source = jobSource(id);
@@ -105,14 +120,23 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 			status: "starting",
 			startedAt: Date.now(),
 			command,
+			cwd: getCwd(),
 		};
 
 		let proc: ChildProcess | null = null;
 
 		try {
+			const spawnCwd = spawnOptions?.cwd ?? getCwd();
+			const captureStdout = spawnOptions?.captureStdout ?? false;
+			const hasStdinPrompt = !!spawnOptions?.stdinPrompt;
+
 			proc = spawn(command[0], command.slice(1), {
-				cwd: getCwd(),
-				stdio: ["ignore", "ignore", "pipe"],
+				cwd: spawnCwd,
+				stdio: [
+					hasStdinPrompt ? "pipe" : "ignore",
+					captureStdout ? "pipe" : "ignore",
+					"pipe",
+				],
 				env: {
 					...process.env,
 					PLANNOTATOR_AGENT_SOURCE: source,
@@ -120,20 +144,80 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 				},
 			});
 
+			// Write prompt to stdin and close (for providers that read prompt from stdin)
+			if (hasStdinPrompt && proc.stdin) {
+				proc.stdin.write(spawnOptions!.stdinPrompt!);
+				proc.stdin.end();
+			}
+
 			info.status = "running";
+			info.cwd = spawnCwd;
+			if (spawnOptions?.prompt) info.prompt = spawnOptions.prompt;
 			jobs.set(id, { info, proc });
+			if (outputPath) jobOutputPaths.set(id, outputPath);
+			if (spawnOptions?.cwd) jobOutputPaths.set(`${id}:cwd`, spawnOptions.cwd);
 			broadcast({ type: "job:started", job: { ...info } });
 
-			// Accumulate stderr continuously (must attach before exit fires)
-			let stderrBuf = "";
-			if (proc.stderr) {
-				proc.stderr.on("data", (chunk: Buffer) => {
-					stderrBuf = (stderrBuf + chunk.toString()).slice(-500);
+			// --- Stdout capture (Claude JSONL streaming) ---
+			let stdoutBuf = "";
+			if (captureStdout && proc.stdout) {
+				proc.stdout.on("data", (chunk: Buffer) => {
+					const text = chunk.toString();
+					stdoutBuf += text;
+
+					// Forward JSONL lines as log events
+					const lines = text.split('\n');
+					for (const line of lines) {
+						if (!line.trim()) continue;
+						if (provider === "claude") {
+							const formatted = formatClaudeLogEvent(line);
+							if (formatted !== null) {
+								broadcast({ type: "job:log", jobId: id, delta: formatted + '\n' });
+							}
+							continue;
+						}
+						try {
+							const event = JSON.parse(line);
+							if (event.type === 'result') continue;
+						} catch { /* not JSON — forward as raw log */ }
+						broadcast({ type: "job:log", jobId: id, delta: line + '\n' });
+					}
 				});
 			}
 
-			// Monitor process exit
-			proc.on("exit", (exitCode) => {
+			// --- Stderr: buffer tail for errors + live log streaming ---
+			let stderrBuf = "";
+			let logPending = "";
+			let logFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+			if (proc.stderr) {
+				proc.stderr.on("data", (chunk: Buffer) => {
+					const text = chunk.toString();
+					stderrBuf = (stderrBuf + text).slice(-500);
+					logPending += text;
+
+					if (!logFlushTimer) {
+						logFlushTimer = setTimeout(() => {
+							if (logPending) {
+								broadcast({ type: "job:log", jobId: id, delta: logPending });
+								logPending = "";
+							}
+							logFlushTimer = null;
+						}, 200);
+					}
+				});
+			}
+
+			// Monitor process close (fires after stdio streams are fully drained,
+			// unlike 'exit' which fires before — critical for stdout capture)
+			proc.on("close", async (exitCode) => {
+				// Flush remaining stderr
+				if (logFlushTimer) { clearTimeout(logFlushTimer); logFlushTimer = null; }
+				if (logPending) {
+					broadcast({ type: "job:log", jobId: id, delta: logPending });
+					logPending = "";
+				}
+
 				const entry = jobs.get(id);
 				if (!entry || isTerminalStatus(entry.info.status)) return;
 
@@ -144,6 +228,23 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 				if (exitCode !== 0 && stderrBuf) {
 					entry.info.error = stderrBuf;
 				}
+
+				// Ingest results before broadcasting completion
+				const jobOutputPath = jobOutputPaths.get(id);
+				const jobCwd = jobOutputPaths.get(`${id}:cwd`);
+				if (exitCode === 0 && options.onJobComplete) {
+					try {
+						await options.onJobComplete(entry.info, {
+							outputPath: jobOutputPath,
+							stdout: captureStdout ? stdoutBuf : undefined,
+							cwd: jobCwd,
+						});
+					} catch {
+						// Result ingestion failure shouldn't prevent job completion broadcast
+					}
+				}
+				jobOutputPaths.delete(id);
+				jobOutputPaths.delete(`${id}:cwd`);
 
 				broadcast({ type: "job:completed", job: { ...entry.info } });
 			});
@@ -185,6 +286,8 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 
 		entry.info.status = "killed";
 		entry.info.endedAt = Date.now();
+		jobOutputPaths.delete(id);
+		jobOutputPaths.delete(`${id}:cwd`);
 		broadcast({ type: "job:completed", job: { ...entry.info } });
 		return true;
 	}
@@ -276,10 +379,11 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 			if (url.pathname === JOBS && req.method === "POST") {
 				try {
 					const body = await parseBody(req);
-					const provider = typeof body.provider === "string" ? body.provider : "shell";
-					const rawCommand = Array.isArray(body.command) ? body.command : [];
-					const command = rawCommand.filter((c: unknown): c is string => typeof c === "string");
-					const label = typeof body.label === "string" ? body.label : `${provider} agent`;
+					const provider = typeof body.provider === "string" ? body.provider : "";
+					let rawCommand = Array.isArray(body.command) ? body.command : [];
+					let command = rawCommand.filter((c: unknown): c is string => typeof c === "string");
+					let label = typeof body.label === "string" ? body.label : `${provider} agent`;
+					let outputPath: string | undefined;
 
 					// Validate provider is a known, available capability
 					const cap = capabilities.find((c) => c.id === provider);
@@ -288,12 +392,35 @@ export function createAgentJobHandler(options: AgentJobHandlerOptions) {
 						return true;
 					}
 
+					// Try server-side command building for known providers
+					let captureStdout = false;
+					let stdinPrompt: string | undefined;
+					let spawnCwd: string | undefined;
+					let promptText: string | undefined;
+					if (options.buildCommand) {
+						const built = await options.buildCommand(provider);
+						if (built) {
+							command = built.command;
+							outputPath = built.outputPath;
+							captureStdout = built.captureStdout ?? false;
+							stdinPrompt = built.stdinPrompt;
+							spawnCwd = built.cwd;
+							promptText = built.prompt;
+							if (built.label) label = built.label;
+						}
+					}
+
 					if (command.length === 0) {
 						json(res, { error: 'Missing "command" array' }, 400);
 						return true;
 					}
 
-					const job = spawnJob(provider, command, label);
+					const job = spawnJob(provider, command, label, outputPath, {
+						captureStdout,
+						stdinPrompt,
+						cwd: spawnCwd,
+						prompt: promptText,
+					});
 					json(res, { job }, 201);
 				} catch {
 					json(res, { error: "Invalid JSON" }, 400);

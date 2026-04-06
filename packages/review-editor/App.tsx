@@ -38,6 +38,7 @@ import { FileTree } from './components/FileTree';
 import { DEMO_DIFF } from './demoData';
 import { exportReviewFeedback } from './utils/exportFeedback';
 import { ReviewStateProvider, type ReviewState } from './dock/ReviewStateContext';
+import { JobLogsProvider } from './dock/JobLogsContext';
 import { reviewPanelComponents } from './dock/reviewPanelComponents';
 import { ReviewDockTabRenderer } from './dock/ReviewDockTabRenderer';
 import { usePRContext } from './hooks/usePRContext';
@@ -114,6 +115,7 @@ const ReviewApp: React.FC = () => {
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
   const [pendingSelection, setPendingSelection] = useState<SelectedLineRange | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showWorktreeDialog, setShowWorktreeDialog] = useState(false);
   const [openSettingsMenu, setOpenSettingsMenu] = useState(false);
   const [showNoAnnotationsDialog, setShowNoAnnotationsDialog] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -151,6 +153,7 @@ const ReviewApp: React.FC = () => {
   const [isWSL, setIsWSL] = useState(false);
   const [diffType, setDiffType] = useState<string>('uncommitted');
   const [gitContext, setGitContext] = useState<GitContext | null>(null);
+  const [agentCwd, setAgentCwd] = useState<string | null>(null);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
   const [isSendingFeedback, setIsSendingFeedback] = useState(false);
@@ -617,6 +620,7 @@ const ReviewApp: React.FC = () => {
         origin?: Origin;
         diffType?: string;
         gitContext?: GitContext;
+        agentCwd?: string;
         sharingEnabled?: boolean;
         repoInfo?: { display: string; branch?: string };
         prMetadata?: PRMetadata;
@@ -644,6 +648,7 @@ const ReviewApp: React.FC = () => {
         if (data.origin) setOrigin(data.origin);
         if (data.diffType) setDiffType(data.diffType);
         if (data.gitContext) setGitContext(data.gitContext);
+        if (data.agentCwd) setAgentCwd(data.agentCwd);
         if (data.sharingEnabled !== undefined) setSharingEnabled(data.sharingEnabled);
         if (data.repoInfo) setRepoInfo(data.repoInfo);
         if (data.prMetadata) setPrMetadata(data.prMetadata);
@@ -970,6 +975,7 @@ const ReviewApp: React.FC = () => {
     isPRContextLoading,
     prContextError,
     fetchPRContext,
+    platformUser,
     openDiffFile,
   }), [
     files, activeFileIndex, diffStyle, diffOverflow, diffIndicators,
@@ -984,8 +990,11 @@ const ReviewApp: React.FC = () => {
     aiAvailable, aiChat.messages, aiChat.isCreatingSession, aiChat.isStreaming,
     handleAskAI, handleViewAIResponse, handleClickAIMarker,
     aiHistoryForSelection, agentJobs.jobs, prMetadata, prContext,
-    isPRContextLoading, prContextError, fetchPRContext, openDiffFile,
+    isPRContextLoading, prContextError, fetchPRContext, platformUser, openDiffFile,
   ]);
+
+  // Separate context for high-frequency job logs — prevents re-rendering all panels on every SSE event
+  const jobLogsValue = useMemo(() => ({ jobLogs: agentJobs.jobLogs }), [agentJobs.jobLogs]);
 
   // Copy raw diff to clipboard
   const handleCopyDiff = useCallback(async () => {
@@ -1300,12 +1309,21 @@ const ReviewApp: React.FC = () => {
   return (
     <ThemeProvider defaultTheme="dark">
       <ReviewStateProvider value={reviewStateValue}>
+      <JobLogsProvider value={jobLogsValue}>
       <div className="h-screen flex flex-col bg-background overflow-hidden">
         {/* Header */}
-        <header className="h-12 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50">
+        <header className="py-1 flex items-center justify-between px-2 md:px-4 border-b border-border/50 bg-card/50 backdrop-blur-xl z-50">
           <div className="min-w-0 flex items-center gap-2 md:gap-3">
             {prMetadata ? (
               <div className="min-w-0 flex items-center gap-2 md:gap-3">
+                {prMetadata && (gitContext || agentCwd) && (
+                  <button
+                    onClick={() => setShowWorktreeDialog(true)}
+                    className="text-[10px] font-medium text-primary/80 bg-primary/10 hover:bg-primary/20 px-1.5 py-0.5 rounded transition-colors cursor-pointer"
+                  >
+                    worktree
+                  </button>
+                )}
                 <span
                   className="text-xs text-muted-foreground/60 inline-flex items-center gap-1 truncate max-w-[200px]"
                   title={displayRepo}
@@ -1324,6 +1342,17 @@ const ReviewApp: React.FC = () => {
                   <span className="font-mono whitespace-nowrap">{mrNumberLabel}</span>
                   <span className="truncate hidden md:inline">{prMetadata.title}</span>
                 </a>
+                <div className="hidden md:flex items-center gap-0.5 ml-1">
+                  <button onClick={() => handleOpenPRPanel('summary')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/30 transition-colors duration-150" title="PR Summary">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  </button>
+                  <button onClick={() => handleOpenPRPanel('comments')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/30 transition-colors duration-150" title="PR Comments">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                  </button>
+                  <button onClick={() => handleOpenPRPanel('checks')} className="p-1 rounded text-muted-foreground/50 hover:text-foreground hover:bg-muted/30 transition-colors duration-150" title="PR Checks">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  </button>
+                </div>
               </div>
             ) : repoInfo ? (
               <div className="min-w-0 flex items-center gap-2 md:gap-3">
@@ -1469,7 +1498,9 @@ const ReviewApp: React.FC = () => {
                   isLoading={isSendingFeedback || isPlatformActioning}
                   muted={!platformMode && totalAnnotationCount === 0 && !isSendingFeedback && !isApproving && !isPlatformActioning}
                   label={platformMode ? 'Post Comments' : 'Send Feedback'}
+                  shortLabel={platformMode ? 'Post' : 'Send'}
                   loadingLabel={platformMode ? 'Posting...' : 'Sending...'}
+                  shortLoadingLabel={platformMode ? 'Posting...' : 'Sending...'}
                   title={!platformMode && totalAnnotationCount === 0 ? "Add annotations to send feedback" : "Send feedback"}
                 />
 
@@ -1766,6 +1797,33 @@ const ReviewApp: React.FC = () => {
           />
         </div>
 
+        {/* Worktree info dialog */}
+        {(gitContext?.cwd || agentCwd) && prMetadata && (
+          <ConfirmDialog
+            isOpen={showWorktreeDialog}
+            onClose={() => setShowWorktreeDialog(false)}
+            title="Local Worktree"
+            wide
+            message={
+              <div className="space-y-3">
+                <p>This PR is checked out locally so review agents have full file access.</p>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60 font-semibold">Path</span>
+                  <button
+                    onClick={() => navigator.clipboard.writeText((agentCwd || gitContext?.cwd)!)}
+                    className="mt-1 w-full text-left font-mono text-xs bg-muted/50 border border-border/50 rounded-md px-3 py-2 text-foreground hover:bg-muted transition-colors cursor-pointer break-all"
+                    title="Click to copy"
+                  >
+                    {agentCwd || gitContext?.cwd}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground/60">Automatically removed when this review session ends.</p>
+              </div>
+            }
+            variant="info"
+          />
+        )}
+
         {/* No annotations dialog */}
         <ConfirmDialog
           isOpen={showNoAnnotationsDialog}
@@ -1880,6 +1938,7 @@ const ReviewApp: React.FC = () => {
           </div>
         )}
       </div>
+    </JobLogsProvider>
     </ReviewStateProvider>
     </ThemeProvider>
   );

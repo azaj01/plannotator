@@ -53,7 +53,8 @@ async function runGit(
   return { stdout, stderr, exitCode };
 }
 
-const runtime: ReviewGitRuntime = {
+/** Bun-based git runtime. Exported for use with shared utilities (worktree, etc.) */
+export const runtime: ReviewGitRuntime = {
   runGit,
   async readTextFile(path: string): Promise<string | null> {
     try {

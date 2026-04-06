@@ -7,7 +7,7 @@ import { PRCommentsTab } from '../../components/PRCommentsTab';
  * Dock panel wrapper for PR Comments.
  */
 export const ReviewPRCommentsPanel: React.FC<IDockviewPanelProps> = () => {
-  const { prContext, isPRContextLoading, prContextError, fetchPRContext } = useReviewState();
+  const { prContext, isPRContextLoading, prContextError, fetchPRContext, platformUser } = useReviewState();
 
   useEffect(() => {
     if (!prContext && !prContextError && !isPRContextLoading) fetchPRContext();
@@ -39,8 +39,8 @@ export const ReviewPRCommentsPanel: React.FC<IDockviewPanelProps> = () => {
   if (!prContext) return null;
 
   return (
-    <div className="h-full overflow-y-auto">
-      <PRCommentsTab context={prContext} />
+    <div className="h-full overflow-hidden">
+      <PRCommentsTab context={prContext} platformUser={platformUser} />
     </div>
   );
 };

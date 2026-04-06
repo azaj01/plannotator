@@ -18,6 +18,20 @@ import { contentHash, deleteDraft } from "./draft";
 import { createEditorAnnotationHandler } from "./editor-annotations";
 import { createExternalAnnotationHandler } from "./external-annotations";
 import { createAgentJobHandler } from "./agent-jobs";
+import {
+  CODEX_REVIEW_SYSTEM_PROMPT,
+  buildCodexReviewUserMessage,
+  buildCodexCommand,
+  generateOutputPath,
+  parseCodexOutput,
+  transformReviewFindings,
+} from "./codex-review";
+import {
+  CLAUDE_REVIEW_PROMPT,
+  buildClaudeCommand,
+  parseClaudeStreamOutput,
+  transformClaudeFindings,
+} from "./claude-review";
 import { saveConfig, detectGitUser, getServerConfig } from "./config";
 import { type PRMetadata, type PRReviewFileComment, fetchPRFileContent, fetchPRContext, submitPRReview, fetchPRViewedFiles, markPRFilesViewed, getPRUser, prRefFromMetadata, getDisplayRepo, getMRLabel, getMRNumberLabel } from "./pr";
 import { createAIEndpoints, ProviderRegistry, SessionManager, createProvider, type AIEndpoints, type PiSDKConfig } from "@plannotator/ai";
@@ -57,6 +71,10 @@ export interface ReviewServerOptions {
   opencodeClient?: OpencodeClient;
   /** PR metadata when reviewing a pull request (PR mode) */
   prMetadata?: PRMetadata;
+  /** Working directory for agent processes (e.g., --local worktree). Independent of diff pipeline. */
+  agentCwd?: string;
+  /** Cleanup callback invoked when server stops (e.g., remove temp worktree) */
+  onCleanup?: () => void | Promise<void>;
 }
 
 export interface ReviewServerResult {
@@ -96,6 +114,7 @@ export async function startReviewServer(
   const { htmlContent, origin, gitContext, sharingEnabled = true, shareBaseUrl, onReady, prMetadata } = options;
 
   const isPRMode = !!prMetadata;
+  const hasLocalAccess = !!gitContext;
   const draftKey = contentHash(options.rawPatch);
   const editorAnnotations = createEditorAnnotationHandler();
   const externalAnnotations = createExternalAnnotationHandler("review");
@@ -112,7 +131,83 @@ export async function startReviewServer(
     mode: "review",
     getServerUrl: () => serverUrl,
     getCwd: () => {
+      if (options.agentCwd) return options.agentCwd;
       return resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
+    },
+
+    async buildCommand(provider) {
+      const cwd = options.agentCwd ?? resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
+      const hasAgentLocalAccess = !!options.agentCwd || !!gitContext;
+      const userMessage = buildCodexReviewUserMessage(
+        currentPatch,
+        currentDiffType,
+        { defaultBranch: gitContext?.defaultBranch, hasLocalAccess: hasAgentLocalAccess },
+        prMetadata,
+      );
+
+      if (provider === "codex") {
+        const outputPath = generateOutputPath();
+        const prompt = CODEX_REVIEW_SYSTEM_PROMPT + "\n\n---\n\n" + userMessage;
+        const command = await buildCodexCommand({ cwd, outputPath, prompt });
+        return { command, outputPath, prompt, label: "Codex Review" };
+      }
+
+      if (provider === "claude") {
+        const prompt = CLAUDE_REVIEW_PROMPT + "\n\n---\n\n" + userMessage;
+        const { command, stdinPrompt } = buildClaudeCommand(prompt);
+        return { command, stdinPrompt, prompt, cwd, label: "Claude Code Review", captureStdout: true };
+      }
+
+      return null;
+    },
+
+    async onJobComplete(job, meta) {
+      const cwd = options.agentCwd ?? resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
+
+      // --- Codex path ---
+      if (job.provider === "codex" && meta.outputPath) {
+        const output = await parseCodexOutput(meta.outputPath);
+        if (!output) return;
+
+        // Override verdict if there are blocking findings (P0/P1) — Codex's
+        // freeform correctness string can say "mostly correct" with real bugs.
+        const hasBlockingFindings = output.findings.some(f => f.priority !== null && f.priority <= 1);
+        job.summary = {
+          correctness: hasBlockingFindings ? "Issues Found" : output.overall_correctness,
+          explanation: output.overall_explanation,
+          confidence: output.overall_confidence_score,
+        };
+
+        if (output.findings.length > 0) {
+          const annotations = transformReviewFindings(output.findings, job.source, cwd, "Codex");
+          const result = externalAnnotations.addAnnotations({ annotations });
+          if ("error" in result) console.error(`[codex-review] addAnnotations error:`, result.error);
+        }
+        return;
+      }
+
+      // --- Claude path ---
+      if (job.provider === "claude" && meta.stdout) {
+        const output = parseClaudeStreamOutput(meta.stdout);
+        if (!output) {
+          console.error(`[claude-review] Failed to parse output (${meta.stdout.length} bytes, last 200: ${meta.stdout.slice(-200)})`);
+          return;
+        }
+
+        const total = output.summary.important + output.summary.nit + output.summary.pre_existing;
+        job.summary = {
+          correctness: output.summary.important === 0 ? "Correct" : "Issues Found",
+          explanation: `${output.summary.important} important, ${output.summary.nit} nit, ${output.summary.pre_existing} pre-existing`,
+          confidence: total === 0 ? 1.0 : Math.max(0, 1.0 - (output.summary.important * 0.2)),
+        };
+
+        if (output.findings.length > 0) {
+          const annotations = transformClaudeFindings(output.findings, job.source, cwd);
+          const result = externalAnnotations.addAnnotations({ annotations });
+          if ("error" in result) console.error(`[claude-review] addAnnotations error:`, result.error);
+        }
+        return;
+      }
     },
   });
 
@@ -194,6 +289,7 @@ export async function startReviewServer(
       registry: aiRegistry,
       sessionManager: aiSessionManager,
       getCwd: () => {
+        if (options.agentCwd) return options.agentCwd;
         return resolveVcsCwd(currentDiffType, gitContext?.cwd) ?? process.cwd();
       },
     });
@@ -260,12 +356,13 @@ export async function startReviewServer(
               rawPatch: currentPatch,
               gitRef: currentGitRef,
               origin,
-              diffType: isPRMode ? undefined : currentDiffType,
-              gitContext: isPRMode ? undefined : gitContext,
+              diffType: hasLocalAccess ? currentDiffType : undefined,
+              gitContext: hasLocalAccess ? gitContext : undefined,
               sharingEnabled,
               shareBaseUrl,
               repoInfo,
               isWSL: wslFlag,
+              ...(options.agentCwd && { agentCwd: options.agentCwd }),
               ...(isPRMode && { prMetadata, platformUser }),
               ...(isPRMode && initialViewedFiles.length > 0 && { viewedFiles: initialViewedFiles }),
               ...(currentError && { error: currentError }),
@@ -273,11 +370,11 @@ export async function startReviewServer(
             });
           }
 
-          // API: Switch diff type (disabled in PR mode)
+          // API: Switch diff type (requires local file access)
           if (url.pathname === "/api/diff/switch" && req.method === "POST") {
-            if (isPRMode) {
+            if (!hasLocalAccess) {
               return Response.json(
-                { error: "Not available for PR reviews" },
+                { error: "Not available without local file access" },
                 { status: 400 },
               );
             }
@@ -351,8 +448,22 @@ export async function startReviewServer(
               }
             }
 
+            // Local review: read file contents from local git
+            if (hasLocalAccess) {
+              const defaultBranch = gitContext?.defaultBranch || "main";
+              const defaultCwd = gitContext?.cwd;
+              const result = await getVcsFileContentsForDiff(
+                currentDiffType,
+                defaultBranch,
+                filePath,
+                oldPath,
+                defaultCwd,
+              );
+              return Response.json(result);
+            }
+
+            // PR mode: fetch from platform API using base/head SHAs
             if (isPRMode) {
-              // Fetch file content from platform API using base/head SHAs
               const [oldContent, newContent] = await Promise.all([
                 fetchPRFileContent(prRef!, prMetadata.baseSha, oldPath || filePath),
                 fetchPRFileContent(prRef!, prMetadata.headSha, filePath),
@@ -360,16 +471,7 @@ export async function startReviewServer(
               return Response.json({ oldContent, newContent });
             }
 
-            const defaultBranch = gitContext?.defaultBranch || "main";
-            const defaultCwd = gitContext?.cwd;
-            const result = await getVcsFileContentsForDiff(
-              currentDiffType,
-              defaultBranch,
-              filePath,
-              oldPath,
-              defaultCwd,
-            );
-            return Response.json(result);
+            return Response.json({ error: "No file access available" }, { status: 400 });
           }
 
           // API: Stage / unstage a file (disabled when VCS doesn't support it)
@@ -491,6 +593,8 @@ export async function startReviewServer(
                 fileComments: PRReviewFileComment[];
               };
 
+              console.error(`[pr-action] ${body.action} with ${body.fileComments.length} file comment(s), headSha=${prMetadata.headSha}`);
+
               await submitPRReview(
                 prRef!,
                 prMetadata.headSha,
@@ -499,10 +603,12 @@ export async function startReviewServer(
                 body.fileComments,
               );
 
+              console.error(`[pr-action] Success`);
               return Response.json({ ok: true, prUrl: prMetadata.url });
             } catch (err) {
               const message =
                 err instanceof Error ? err.message : "Failed to submit PR review";
+              console.error(`[pr-action] Failed: ${message}`);
               return Response.json({ error: message }, { status: 500 });
             }
           }
@@ -595,6 +701,13 @@ export async function startReviewServer(
       aiSessionManager.disposeAll();
       aiRegistry.disposeAll();
       server.stop();
+      // Invoke cleanup callback (e.g., remove temp worktree)
+      if (options.onCleanup) {
+        try {
+          const result = options.onCleanup();
+          if (result instanceof Promise) result.catch(() => {});
+        } catch { /* best effort */ }
+      }
     },
   };
 }

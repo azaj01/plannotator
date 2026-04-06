@@ -166,11 +166,11 @@ export const FileTree: React.FC<FileTreeProps> = ({
   }, []);
 
   return (
-    <aside className="border-r border-border bg-card/30 flex flex-col flex-shrink-0 overflow-hidden" style={{ width: width ?? 256 }}>
+    <aside className="border-r border-border/50 bg-card/30 flex flex-col flex-shrink-0 overflow-hidden" style={{ width: width ?? 256 }}>
       {/* Header */}
-      <div className="px-3 py-2 border-b border-border/50">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+      <div className="px-3 flex items-center border-b border-border/50" style={{ height: 'var(--panel-header-h)' }}>
+        <div className="w-full flex items-center justify-between">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             {searchQuery.trim() ? 'Results' : 'Files'}
           </span>
           <div className="flex items-center gap-1.5">
@@ -270,7 +270,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
                 }
               }}
               placeholder="Search diff..."
-              className="w-full pl-7 py-1.5 pr-7 bg-muted rounded-md text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+              className="w-full pl-7 py-1.5 pr-7 bg-muted rounded text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
             />
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
               {searchQuery.trim() && !isSearchPending && (
@@ -292,74 +292,68 @@ export const FileTree: React.FC<FileTreeProps> = ({
         </div>
       )}
 
-      {/* Worktree context switcher — only shown when worktrees exist */}
-      {worktrees && worktrees.length > 0 && onSelectWorktree && (
-        <div className="px-2 pt-2 pb-1.5 border-b border-border/30">
-          <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1 px-0.5">Context</div>
-          <div className="relative">
-            <select
-              value={activeWorktreePath || ''}
-              onChange={(e) => onSelectWorktree(e.target.value || null)}
-              disabled={isLoadingDiff}
-              className={`w-full px-2.5 py-1.5 rounded-md text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer disabled:opacity-50 disabled:cursor-wait appearance-none pr-7 ${
-                activeWorktreePath
-                  ? 'bg-primary/10 border border-primary/30'
-                  : 'bg-muted'
-              }`}
-            >
-              <option value="">{currentBranch || 'Main repo'}</option>
-              {worktrees.map(wt => (
-                <option key={wt.path} value={wt.path}>
-                  {(wt.branch || wt.path.split('/').pop()) + ' (worktree)'}
-                </option>
-              ))}
-            </select>
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-              <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Diff type selector — always the same base options */}
-      {diffOptions && diffOptions.length > 0 && onSelectDiff && (
-        <div className="px-2 py-1.5 border-b border-border/30">
-          {worktrees && worktrees.length > 0 && (
-            <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-1 px-0.5">View</div>
-          )}
-          <div className="relative">
-            <select
-              value={activeDiffType || 'uncommitted'}
-              onChange={(e) => onSelectDiff(e.target.value)}
-              disabled={isLoadingDiff}
-              className="w-full px-2.5 py-1.5 bg-muted rounded-md text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer disabled:opacity-50 disabled:cursor-wait appearance-none pr-7"
-            >
-              {diffOptions.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-              {isLoadingDiff ? (
-                <svg className="w-3.5 h-3.5 text-muted-foreground animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-              ) : (
+      {/* Worktree + diff selectors — combined row when both present */}
+      {((worktrees && worktrees.length > 0 && onSelectWorktree) || (diffOptions && diffOptions.length > 0 && onSelectDiff)) && (
+        <div className="px-2 py-1.5 border-b border-border/30 flex gap-2">
+          {worktrees && worktrees.length > 0 && onSelectWorktree && (
+            <div className="relative flex-1 min-w-0">
+              <select
+                value={activeWorktreePath || ''}
+                onChange={(e) => onSelectWorktree(e.target.value || null)}
+                disabled={isLoadingDiff}
+                className={`w-full px-2.5 py-1.5 rounded text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer disabled:opacity-50 disabled:cursor-wait appearance-none pr-7 ${
+                  activeWorktreePath
+                    ? 'bg-primary/10 border border-primary/30'
+                    : 'bg-muted'
+                }`}
+              >
+                <option value="">{currentBranch || 'Main repo'}</option>
+                {worktrees.map(wt => (
+                  <option key={wt.path} value={wt.path}>
+                    {(wt.branch || wt.path.split('/').pop()) + ' (worktree)'}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
                 <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
                 </svg>
-              )}
+              </div>
             </div>
-          </div>
+          )}
+          {diffOptions && diffOptions.length > 0 && onSelectDiff && (
+            <div className="relative flex-1 min-w-0">
+              <select
+                value={activeDiffType || 'uncommitted'}
+                onChange={(e) => onSelectDiff(e.target.value)}
+                disabled={isLoadingDiff}
+                className="w-full px-2.5 py-1.5 bg-muted rounded text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer disabled:opacity-50 disabled:cursor-wait appearance-none pr-7"
+              >
+                {diffOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                {isLoadingDiff ? (
+                  <svg className="w-3.5 h-3.5 text-muted-foreground animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* File tree or search results */}
-      <div className="flex-1 overflow-y-auto p-2">
+      <div className="flex-1 overflow-y-auto px-1 py-1">
         {searchQuery.trim() ? (
           isSearchPending ? (
             <div className="py-6 text-center text-xs text-muted-foreground/50">
@@ -401,9 +395,33 @@ export const FileTree: React.FC<FileTreeProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="px-2 py-1.5 border-t border-border/50 text-xs text-muted-foreground space-y-1.5">
-        <div className="flex justify-between">
-          <span>Total changes:</span>
+      <div className="px-2 py-1.5 border-t border-border/50 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between">
+          {onCopyRawDiff ? (
+            <button
+              onClick={onCopyRawDiff}
+              disabled={!canCopyRawDiff}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Copy all raw diffs to clipboard (Cmd/Ctrl+Shift+C)"
+            >
+              {copyRawDiffStatus === 'success' ? (
+                <svg className="w-3 h-3 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              ) : copyRawDiffStatus === 'error' ? (
+                <svg className="w-3 h-3 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              )}
+              {copyRawDiffStatus === 'success' ? 'Copied' : copyRawDiffStatus === 'error' ? 'Failed' : 'Copy diffs'}
+            </button>
+          ) : (
+            <span />
+          )}
           <span className="file-stats inline-flex items-center gap-1.5">
             <span className="additions">
               +{files.reduce((sum, f) => sum + f.additions, 0)}
@@ -413,37 +431,6 @@ export const FileTree: React.FC<FileTreeProps> = ({
             </span>
           </span>
         </div>
-        {onCopyRawDiff && (
-          <button
-            onClick={onCopyRawDiff}
-            disabled={!canCopyRawDiff}
-            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-all text-muted-foreground hover:text-foreground hover:bg-muted/50 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
-            title="Copy all raw diffs to clipboard (Cmd/Ctrl+Shift+C)"
-          >
-            {copyRawDiffStatus === 'success' ? (
-              <>
-                <svg className="w-3.5 h-3.5 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-                Copied
-              </>
-            ) : copyRawDiffStatus === 'error' ? (
-              <>
-                <svg className="w-3.5 h-3.5 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Copy failed
-              </>
-            ) : (
-              <>
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-                Copy All Raw Diffs
-              </>
-            )}
-          </button>
-        )}
       </div>
     </aside>
   );
@@ -478,7 +465,7 @@ const SearchFileGroup: React.FC<{
     <div className="mb-1">
       {/* File header */}
       <button
-        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs hover:bg-muted transition-colors group"
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-xs hover:bg-muted transition-colors group"
         onClick={() => setCollapsed(prev => !prev)}
       >
         <svg className={`w-3 h-3 text-muted-foreground/50 transition-transform flex-shrink-0 ${collapsed ? '' : 'rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -525,7 +512,7 @@ const SearchMatchRow: React.FC<{
 
   return (
     <button
-      className={`w-full text-left px-2 py-1 rounded-sm text-[11px] font-mono transition-colors flex items-start gap-1.5 ${
+      className={`w-full text-left px-2 py-1 rounded-sm text-xs font-mono transition-colors flex items-start gap-1.5 ${
         isActive
           ? 'bg-primary/15 text-foreground'
           : 'hover:bg-muted/50 text-muted-foreground'
@@ -533,7 +520,7 @@ const SearchMatchRow: React.FC<{
       onClick={onSelect}
     >
       <span className="flex-shrink-0 text-muted-foreground/40 w-7 text-right tabular-nums">{match.lineNumber}</span>
-      <span className={`flex-shrink-0 w-6 text-[9px] font-semibold uppercase ${sideColor}`}>{sideLabel}</span>
+      <span className={`flex-shrink-0 w-6 text-[10px] font-semibold uppercase ${sideColor}`}>{sideLabel}</span>
       <span className="truncate leading-relaxed">{highlightQuery(match.snippet, searchQuery)}</span>
     </button>
   );

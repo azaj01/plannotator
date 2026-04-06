@@ -20,6 +20,7 @@ const CAPABILITIES_URL = '/api/agents/capabilities';
 
 interface UseAgentJobsReturn {
   jobs: AgentJobInfo[];
+  jobLogs: Map<string, string>;
   capabilities: AgentCapabilities | null;
   launchJob: (params: { provider?: string; command?: string[]; label?: string }) => Promise<AgentJobInfo | null>;
   killJob: (id: string) => Promise<void>;
@@ -31,6 +32,7 @@ export function useAgentJobs(
 ): UseAgentJobsReturn {
   const enabled = options?.enabled ?? true;
   const [jobs, setJobs] = useState<AgentJobInfo[]>([]);
+  const [jobLogs, setJobLogs] = useState<Map<string, string>>(new Map());
   const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
   const versionRef = useRef(0);
   const fallbackRef = useRef(false);
@@ -82,6 +84,13 @@ export function useAgentJobs(
             setJobs((prev) =>
               prev.map((j) => (j.id === parsed.job.id ? parsed.job : j)),
             );
+            break;
+          case 'job:log':
+            setJobLogs((prev) => {
+              const next = new Map(prev);
+              next.set(parsed.jobId, (prev.get(parsed.jobId) ?? '') + parsed.delta);
+              return next;
+            });
             break;
           case 'jobs:cleared':
             // No-op: killAll() already broadcasts individual job:completed events
@@ -189,5 +198,5 @@ export function useAgentJobs(
     }
   }, []);
 
-  return { jobs, capabilities, launchJob, killJob, killAll };
+  return { jobs, jobLogs, capabilities, launchJob, killJob, killAll };
 }

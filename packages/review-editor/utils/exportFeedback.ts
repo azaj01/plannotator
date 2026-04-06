@@ -71,6 +71,10 @@ export function exportReviewFeedback(
         output += `${ann.text}\n`;
       }
 
+      if (ann.reasoning) {
+        output += `\n**Reasoning:** ${ann.reasoning}\n`;
+      }
+
       if (ann.suggestedCode) {
         output += `\n**Suggested code:**\n\`\`\`\n${ann.suggestedCode}\n\`\`\`\n`;
       }

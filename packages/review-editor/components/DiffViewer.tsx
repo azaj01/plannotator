@@ -355,6 +355,8 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
           suggestedCode: ann.suggestedCode,
           originalCode: ann.originalCode,
           author: ann.author,
+          severity: ann.severity,
+          reasoning: ann.reasoning,
         } as DiffAnnotationMetadata,
       }));
   }, [annotations]);

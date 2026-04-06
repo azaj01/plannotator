@@ -15,6 +15,7 @@ export interface ConfirmDialogProps {
   cancelText?: string;
   variant?: 'info' | 'warning';
   showCancel?: boolean;
+  wide?: boolean;
 }
 
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
@@ -28,6 +29,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   cancelText = 'Cancel',
   variant = 'info',
   showCancel = false,
+  wide = false,
 }) => {
   if (!isOpen) return null;
 
@@ -56,7 +58,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
-      <div className="bg-card border border-border rounded-xl w-full max-w-sm shadow-2xl p-6">
+      <div className={`bg-card border border-border rounded-xl w-full shadow-2xl p-6 ${wide ? 'max-w-md' : 'max-w-sm'}`}>
         <div className="flex items-center gap-3 mb-4">
           <div className={`w-10 h-10 rounded-full flex items-center justify-center ${iconColors[variant]}`}>
             {icons[variant]}
