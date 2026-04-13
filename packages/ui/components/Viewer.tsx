@@ -77,6 +77,8 @@ interface ViewerProps {
    */
   actionsLabelMode?: ActionsLabelMode;
   archiveInfo?: { status: 'approved' | 'denied' | 'unknown'; timestamp: string; title: string } | null;
+  /** Source attribution for HTML/URL annotations (e.g. URL or filename) */
+  sourceInfo?: string;
   // Checkbox toggle props
   onToggleCheckbox?: (blockId: string, checked: boolean) => void;
   checkboxOverrides?: Map<string, boolean>;
@@ -149,6 +151,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
   copyLabel,
   actionsLabelMode = 'full',
   archiveInfo,
+  sourceInfo,
   onToggleCheckbox,
   checkboxOverrides,
 }, ref) => {
@@ -449,7 +452,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
         style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
       >
         {/* Repo info + plan diff badge + demo badge + linked doc badge + archive badge - top left */}
-        {(repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || archiveInfo) && (
+        {(repoInfo || hasPreviousVersion || showDemoBadge || linkedDocInfo || archiveInfo || sourceInfo) && (
           <div data-print-hide className="absolute top-3 left-3 md:top-4 md:left-5">
             <DocBadges
               layout="column"
@@ -461,6 +464,7 @@ export const Viewer = forwardRef<ViewerHandle, ViewerProps>(({
               showDemoBadge={showDemoBadge}
               archiveInfo={archiveInfo}
               linkedDocInfo={linkedDocInfo}
+              sourceInfo={sourceInfo}
             />
           </div>
         )}
@@ -729,6 +733,13 @@ const ImageLightbox: React.FC<{ src: string; alt: string; onClose: () => void }>
   );
 };
 
+/** Block dangerous link protocols (javascript:, data:, vbscript:, file:). Returns null for blocked URLs. */
+const DANGEROUS_PROTOCOL = /^\s*(javascript|data|vbscript|file)\s*:/i;
+function sanitizeLinkUrl(url: string): string | null {
+  if (DANGEROUS_PROTOCOL.test(url)) return null;
+  return url;
+}
+
 /**
  * Renders inline markdown: **bold**, *italic*, _italic_, `code`, [links](url)
  */
@@ -739,8 +750,8 @@ const InlineMarkdown: React.FC<{ text: string; onOpenLinkedDoc?: (path: string) 
   let previousChar = '';
 
   while (remaining.length > 0) {
-    // Backslash escaping: \* \_ \` \[ \~ etc. — emit literal char, hide backslash
-    let match = remaining.match(/^\\([*_`\[\]~!\\])/);
+    // Backslash escaping: \. \* \_ \` \[ \~ etc. — emit literal char, hide backslash
+    let match = remaining.match(/^\\([\\*_`\[\]~!.()\-#>+|{}&])/);
     if (match) {
       parts.push(match[1]);
       remaining = remaining.slice(2);
@@ -830,7 +841,7 @@ const InlineMarkdown: React.FC<{ text: string; onOpenLinkedDoc?: (path: string) 
     if (match) {
       const target = match[1].trim();
       const display = match[2]?.trim() || target;
-      const targetPath = /\.mdx?$/i.test(target) ? target : `${target}.md`;
+      const targetPath = /\.(mdx?|html?)$/i.test(target) ? target : `${target}.md`;
 
       if (onOpenLinkedDoc) {
         parts.push(
@@ -886,15 +897,25 @@ const InlineMarkdown: React.FC<{ text: string; onOpenLinkedDoc?: (path: string) 
     if (match) {
       const linkText = match[1];
       const linkUrl = match[2];
-      const isLocalMd = /\.md(x?)$/i.test(linkUrl) &&
+      const safeLinkUrl = sanitizeLinkUrl(linkUrl);
+
+      // Dangerous protocol stripped — render as plain text, not a dead link
+      if (safeLinkUrl === null) {
+        parts.push(<span key={key++}>{linkText}</span>);
+        remaining = remaining.slice(match[0].length);
+        previousChar = match[0][match[0].length - 1] || previousChar;
+        continue;
+      }
+
+      const isLocalDoc = /\.(mdx?|html?)$/i.test(linkUrl) &&
         !linkUrl.startsWith('http://') &&
         !linkUrl.startsWith('https://');
 
-      if (isLocalMd && onOpenLinkedDoc) {
+      if (isLocalDoc && onOpenLinkedDoc) {
         parts.push(
           <a
             key={key++}
-            href={linkUrl}
+            href={safeLinkUrl}
             onClick={(e) => {
               e.preventDefault();
               onOpenLinkedDoc(linkUrl);
@@ -908,12 +929,12 @@ const InlineMarkdown: React.FC<{ text: string; onOpenLinkedDoc?: (path: string) 
             </svg>
           </a>
         );
-      } else if (isLocalMd) {
+      } else if (isLocalDoc) {
         // No handler — render as plain link (e.g., in shared/portal views)
         parts.push(
           <a
             key={key++}
-            href={linkUrl}
+            href={safeLinkUrl}
             className="text-primary underline underline-offset-2 hover:text-primary/80"
           >
             {linkText}
@@ -923,7 +944,7 @@ const InlineMarkdown: React.FC<{ text: string; onOpenLinkedDoc?: (path: string) 
         parts.push(
           <a
             key={key++}
-            href={linkUrl}
+            href={safeLinkUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="text-primary underline underline-offset-2 hover:text-primary/80"

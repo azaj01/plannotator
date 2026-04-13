@@ -22,12 +22,13 @@ import {
 	FILE_BROWSER_EXCLUDED,
 } from "../generated/reference-common.js";
 import { detectObsidianVaults } from "../generated/integrations-common.js";
-import { resolveMarkdownFile } from "../generated/resolve-file.js";
+import { resolveMarkdownFile, isWithinProjectRoot } from "../generated/resolve-file.js";
+import { htmlToMarkdown } from "../generated/html-to-markdown.js";
 
 type Res = ServerResponse;
 
-/** Recursively walk a directory collecting markdown files, skipping ignored dirs. */
-function walkMarkdownFiles(dir: string, root: string, results: string[]): void {
+/** Recursively walk a directory collecting files by extension, skipping ignored dirs. */
+function walkMarkdownFiles(dir: string, root: string, results: string[], extensions: RegExp = /\.(mdx?|html?)$/i): void {
 	let entries: Dirent[];
 	try {
 		entries = readdirSync(dir, { withFileTypes: true }) as Dirent[];
@@ -37,8 +38,8 @@ function walkMarkdownFiles(dir: string, root: string, results: string[]): void {
 	for (const entry of entries) {
 		if (entry.isDirectory()) {
 			if (FILE_BROWSER_EXCLUDED.includes(entry.name + "/")) continue;
-			walkMarkdownFiles(join(dir, entry.name), root, results);
-		} else if (entry.isFile() && /\.mdx?$/i.test(entry.name)) {
+			walkMarkdownFiles(join(dir, entry.name), root, results, extensions);
+		} else if (entry.isFile() && extensions.test(entry.name)) {
 			const relative = join(dir, entry.name)
 				.slice(root.length + 1)
 				.replace(/\\/g, "/");
@@ -55,17 +56,22 @@ export function handleDocRequest(res: Res, url: URL): void {
 		return;
 	}
 
-	// Try resolving relative to base directory first (used by annotate mode)
+	// Try resolving relative to base directory first (used by annotate mode).
+	// No isWithinProjectRoot check here — intentional, matches pre-existing
+	// markdown behavior. The base param is set server-side by the annotate
+	// server (see serverAnnotate.ts /api/doc route). The standalone HTML
+	// block below (no base) retains its cwd-based containment check.
 	const base = url.searchParams.get("base");
 	if (
 		base &&
 		!requestedPath.startsWith("/") &&
-		/\.mdx?$/i.test(requestedPath)
+		/\.(mdx?|html?)$/i.test(requestedPath)
 	) {
 		const fromBase = resolvePath(base, requestedPath);
 		try {
 			if (existsSync(fromBase)) {
-				const markdown = readFileSync(fromBase, "utf-8");
+				const raw = readFileSync(fromBase, "utf-8");
+				const markdown = /\.html?$/i.test(requestedPath) ? htmlToMarkdown(raw) : raw;
 				json(res, { markdown, filepath: fromBase });
 				return;
 			}
@@ -74,7 +80,25 @@ export function handleDocRequest(res: Res, url: URL): void {
 		}
 	}
 
+	// HTML files: resolve directly (not via resolveMarkdownFile which only handles .md/.mdx)
 	const projectRoot = process.cwd();
+	if (/\.html?$/i.test(requestedPath)) {
+		const resolvedHtml = resolvePath(base || projectRoot, requestedPath);
+		if (!isWithinProjectRoot(resolvedHtml, projectRoot)) {
+			json(res, { error: "Access denied: path is outside project root" }, 403);
+			return;
+		}
+		try {
+			if (existsSync(resolvedHtml)) {
+				const html = readFileSync(resolvedHtml, "utf-8");
+				json(res, { markdown: htmlToMarkdown(html), filepath: resolvedHtml });
+				return;
+			}
+		} catch { /* fall through to 404 */ }
+		json(res, { error: `File not found: ${requestedPath}` }, 404);
+		return;
+	}
+
 	const result = resolveMarkdownFile(requestedPath, projectRoot);
 
 	if (result.kind === "ambiguous") {
@@ -119,7 +143,7 @@ export function handleObsidianFilesRequest(res: Res, url: URL): void {
 	}
 	try {
 		const files: string[] = [];
-		walkMarkdownFiles(resolvedVault, resolvedVault, files);
+		walkMarkdownFiles(resolvedVault, resolvedVault, files, /\.mdx?$/i);
 		files.sort();
 		json(res, { tree: buildFileTree(files) });
 	} catch {
@@ -144,7 +168,7 @@ export function handleObsidianDocRequest(res: Res, url: URL): void {
 	// Bare filename search within vault
 	if (!existsSync(resolvedFile) && !filePath.includes("/")) {
 		const files: string[] = [];
-		walkMarkdownFiles(resolvedVault, resolvedVault, files);
+		walkMarkdownFiles(resolvedVault, resolvedVault, files, /\.mdx?$/i);
 		const matches = files.filter(
 			(f) => f.split("/").pop()!.toLowerCase() === filePath.toLowerCase(),
 		);

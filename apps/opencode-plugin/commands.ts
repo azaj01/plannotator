@@ -20,8 +20,12 @@ import {
 } from "@plannotator/server/annotate";
 import { getGitContext, runGitDiffWithContext } from "@plannotator/server/git";
 import { parsePRUrl, checkPRAuth, fetchPR, getCliName, getMRLabel, getMRNumberLabel, getDisplayRepo } from "@plannotator/server/pr";
-import { loadConfig, resolveDefaultDiffType } from "@plannotator/shared/config";
+import { loadConfig, resolveDefaultDiffType, resolveUseJina } from "@plannotator/shared/config";
 import { resolveMarkdownFile } from "@plannotator/shared/resolve-file";
+import { htmlToMarkdown } from "@plannotator/shared/html-to-markdown";
+import { urlToMarkdown } from "@plannotator/shared/url-to-markdown";
+import { statSync } from "fs";
+import path from "path";
 
 /** Shared dependencies injected by the plugin */
 export interface CommandDeps {
@@ -149,35 +153,79 @@ export async function handleAnnotateCommand(
   const filePath = event.properties?.arguments || event.arguments || "";
 
   if (!filePath) {
-    client.app.log({ level: "error", message: "Usage: /plannotator-annotate <file.md>" });
+    client.app.log({ level: "error", message: "Usage: /plannotator-annotate <file.md | file.html | https://...>" });
     return;
   }
 
-  client.app.log({ level: "info", message: `Opening annotation UI for ${filePath}...` });
+  let markdown: string;
+  let absolutePath: string;
+  let sourceInfo: string | undefined;
 
-  const projectRoot = process.cwd();
-  const resolved = await resolveMarkdownFile(filePath, projectRoot);
+  // --- URL annotation ---
+  const isUrl = /^https?:\/\//i.test(filePath);
 
-  if (resolved.kind === "ambiguous") {
-    client.app.log({
-      level: "error",
-      message: `Ambiguous filename "${resolved.input}" — found ${resolved.matches.length} matches:\n${resolved.matches.map((m) => `  ${m}`).join("\n")}`,
-    });
-    return;
+  if (isUrl) {
+    const useJina = resolveUseJina(false, loadConfig());
+    client.app.log({ level: "info", message: `Fetching: ${filePath}${useJina ? " (via Jina Reader)" : " (via fetch+Turndown)"}...` });
+    try {
+      const result = await urlToMarkdown(filePath, { useJina });
+      markdown = result.markdown;
+    } catch (err) {
+      client.app.log({ level: "error", message: `Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}` });
+      return;
+    }
+    absolutePath = filePath;
+    sourceInfo = filePath;
+  } else {
+    const projectRoot = process.cwd();
+    const resolvedArg = path.resolve(projectRoot, filePath);
+
+    if (/\.html?$/i.test(resolvedArg)) {
+      // HTML file annotation — convert to markdown via Turndown
+      let fileSize: number;
+      try {
+        fileSize = statSync(resolvedArg).size;
+      } catch {
+        client.app.log({ level: "error", message: `File not found: ${filePath}` });
+        return;
+      }
+      if (fileSize > 10 * 1024 * 1024) {
+        client.app.log({ level: "error", message: `File too large (${Math.round(fileSize / 1024 / 1024)}MB, max 10MB)` });
+        return;
+      }
+      const html = await Bun.file(resolvedArg).text();
+      markdown = htmlToMarkdown(html);
+      absolutePath = resolvedArg;
+      sourceInfo = path.basename(resolvedArg);
+      client.app.log({ level: "info", message: `Converted: ${absolutePath}` });
+    } else {
+      // Markdown file annotation
+      client.app.log({ level: "info", message: `Opening annotation UI for ${filePath}...` });
+      const resolved = await resolveMarkdownFile(filePath, projectRoot);
+
+      if (resolved.kind === "ambiguous") {
+        client.app.log({
+          level: "error",
+          message: `Ambiguous filename "${resolved.input}" — found ${resolved.matches.length} matches:\n${resolved.matches.map((m) => `  ${m}`).join("\n")}`,
+        });
+        return;
+      }
+      if (resolved.kind === "not_found") {
+        client.app.log({ level: "error", message: `File not found: ${resolved.input}` });
+        return;
+      }
+
+      absolutePath = resolved.path;
+      client.app.log({ level: "info", message: `Resolved: ${absolutePath}` });
+      markdown = await Bun.file(absolutePath).text();
+    }
   }
-  if (resolved.kind === "not_found") {
-    client.app.log({ level: "error", message: `File not found: ${resolved.input}` });
-    return;
-  }
-
-  const absolutePath = resolved.path;
-  client.app.log({ level: "info", message: `Resolved: ${absolutePath}` });
-  const markdown = await Bun.file(absolutePath).text();
 
   const server = await startAnnotateServer({
     markdown,
     filePath: absolutePath,
     origin: "opencode",
+    sourceInfo,
     sharingEnabled: await getSharingEnabled(),
     shareBaseUrl: getShareBaseUrl(),
     htmlContent,

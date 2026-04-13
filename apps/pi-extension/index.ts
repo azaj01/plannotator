@@ -19,7 +19,7 @@
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, basename } from "node:path";
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import { Type } from "@mariozechner/pi-ai";
 import type {
@@ -36,6 +36,9 @@ import {
 import { planDenyFeedback } from "./generated/feedback-templates.js";
 import { hasMarkdownFiles } from "./generated/resolve-file.js";
 import { FILE_BROWSER_EXCLUDED } from "./generated/reference-common.js";
+import { htmlToMarkdown } from "./generated/html-to-markdown.js";
+import { urlToMarkdown } from "./generated/url-to-markdown.js";
+import { loadConfig, resolveUseJina } from "./generated/config.js";
 import {
 	getLastAssistantMessageText,
 	hasPlanBrowserHtml,
@@ -380,7 +383,7 @@ export default function plannotator(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const filePath = args?.trim();
 			if (!filePath) {
-				ctx.ui.notify("Usage: /plannotator-annotate <file.md | folder/>", "error");
+				ctx.ui.notify("Usage: /plannotator-annotate <file.md | file.html | https://... | folder/>", "error");
 				return;
 			}
 			if (!hasPlanBrowserHtml()) {
@@ -391,41 +394,70 @@ export default function plannotator(pi: ExtensionAPI): void {
 				return;
 			}
 
-			const absolutePath = resolve(ctx.cwd, filePath);
-			if (!existsSync(absolutePath)) {
-				ctx.ui.notify(`File not found: ${absolutePath}`, "error");
-				return;
-			}
-
-			// Check if the argument is a directory (folder annotation mode)
-			let isFolder = false;
-			try {
-				isFolder = statSync(absolutePath).isDirectory();
-			} catch {
-				ctx.ui.notify(`Cannot access: ${absolutePath}`, "error");
-				return;
-			}
-
 			let markdown: string;
+			let absolutePath: string;
 			let folderPath: string | undefined;
 			let mode: "annotate" | "annotate-folder" | undefined;
+			let sourceInfo: string | undefined;
+			let isFolder = false;
 
-			if (isFolder) {
-				if (!hasMarkdownFiles(absolutePath, FILE_BROWSER_EXCLUDED)) {
-					ctx.ui.notify(`No markdown files found in ${absolutePath}`, "error");
+			// --- URL annotation ---
+			const isUrl = /^https?:\/\//i.test(filePath);
+
+			if (isUrl) {
+				const useJina = resolveUseJina(false, loadConfig());
+				ctx.ui.notify(`Fetching: ${filePath}${useJina ? " (via Jina Reader)" : " (via fetch+Turndown)"}...`, "info");
+				try {
+					const result = await urlToMarkdown(filePath, { useJina });
+					markdown = result.markdown;
+				} catch (err) {
+					ctx.ui.notify(`Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`, "error");
 					return;
 				}
-				markdown = "";
-				folderPath = absolutePath;
-				mode = "annotate-folder";
-				ctx.ui.notify(`Opening annotation UI for folder ${filePath}...`, "info");
+				absolutePath = filePath;
+				sourceInfo = filePath;
 			} else {
-				markdown = readFileSync(absolutePath, "utf-8");
-				ctx.ui.notify(`Opening annotation UI for ${filePath}...`, "info");
+				absolutePath = resolve(ctx.cwd, filePath);
+				if (!existsSync(absolutePath)) {
+					ctx.ui.notify(`File not found: ${absolutePath}`, "error");
+					return;
+				}
+
+				try {
+					isFolder = statSync(absolutePath).isDirectory();
+				} catch {
+					ctx.ui.notify(`Cannot access: ${absolutePath}`, "error");
+					return;
+				}
+
+				if (isFolder) {
+					if (!hasMarkdownFiles(absolutePath, FILE_BROWSER_EXCLUDED, /\.(mdx?|html?)$/i)) {
+						ctx.ui.notify(`No markdown or HTML files found in ${absolutePath}`, "error");
+						return;
+					}
+					markdown = "";
+					folderPath = absolutePath;
+					mode = "annotate-folder";
+					ctx.ui.notify(`Opening annotation UI for folder ${filePath}...`, "info");
+				} else if (/\.html?$/i.test(absolutePath)) {
+					// HTML file annotation — convert to markdown via Turndown
+					const fileSize = statSync(absolutePath).size;
+					if (fileSize > 10 * 1024 * 1024) {
+						ctx.ui.notify(`File too large (${Math.round(fileSize / 1024 / 1024)}MB, max 10MB)`, "error");
+						return;
+					}
+					const html = readFileSync(absolutePath, "utf-8");
+					markdown = htmlToMarkdown(html);
+					sourceInfo = basename(absolutePath);
+					ctx.ui.notify(`Opening annotation UI for ${filePath}...`, "info");
+				} else {
+					markdown = readFileSync(absolutePath, "utf-8");
+					ctx.ui.notify(`Opening annotation UI for ${filePath}...`, "info");
+				}
 			}
 
 			try {
-				const result = await openMarkdownAnnotation(ctx, absolutePath, markdown, mode ?? "annotate", folderPath);
+				const result = await openMarkdownAnnotation(ctx, absolutePath, markdown, mode ?? "annotate", folderPath, sourceInfo);
 				if (result.exit) {
 					ctx.ui.notify("Annotation session closed.", "info");
 				} else if (result.feedback) {

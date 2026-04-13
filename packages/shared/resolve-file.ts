@@ -46,7 +46,7 @@ function normalizeComparablePath(input: string): string {
 	return stripTrailingSlashes(normalizeSeparators(resolve(input)));
 }
 
-function isWithinProjectRoot(candidate: string, projectRoot: string): boolean {
+export function isWithinProjectRoot(candidate: string, projectRoot: string): boolean {
 	const normalizedCandidate = normalizeComparablePath(candidate);
 	const normalizedProjectRoot = normalizeComparablePath(projectRoot);
 	return (
@@ -272,13 +272,18 @@ export function resolveMarkdownFile(
 }
 
 /**
- * Check if a directory contains at least one markdown file.
+ * Check if a directory contains at least one file matching the given extensions.
  * Used to validate folder annotation targets.
  *
  * @param dirPath - Directory to search
  * @param excludedDirs - Directory names to skip (with trailing slash, e.g. "node_modules/")
+ * @param extensions - Regex to match file extensions (default: markdown only)
  */
-export function hasMarkdownFiles(dirPath: string, excludedDirs: string[] = IGNORED_DIRS): boolean {
+export function hasMarkdownFiles(
+	dirPath: string,
+	excludedDirs: string[] = IGNORED_DIRS,
+	extensions: RegExp = /\.mdx?$/i,
+): boolean {
 	function walk(dir: string): boolean {
 		let entries;
 		try {
@@ -290,7 +295,7 @@ export function hasMarkdownFiles(dirPath: string, excludedDirs: string[] = IGNOR
 			if (entry.isDirectory()) {
 				if (excludedDirs.some((d) => d === entry.name + "/")) continue;
 				if (walk(join(dir, entry.name))) return true;
-			} else if (entry.isFile() && /\.mdx?$/i.test(entry.name)) {
+			} else if (entry.isFile() && extensions.test(entry.name)) {
 				return true;
 			}
 		}

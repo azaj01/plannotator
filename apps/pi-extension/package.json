@@ -38,6 +38,10 @@
     "build": "cp ../hook/dist/index.html plannotator.html && cp ../hook/dist/review.html review-editor.html && rm -rf skills && cp -r ../skills skills && bash vendor.sh",
     "prepublishOnly": "cd ../.. && bun run build:pi"
   },
+  "dependencies": {
+    "turndown": "^7.2.4",
+    "@joplin/turndown-plugin-gfm": "^1.0.64"
+  },
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": ">=0.53.0"
   }

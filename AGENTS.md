@@ -104,6 +104,8 @@ claude --plugin-dir ./apps/hook
 | `PLANNOTATOR_SHARE` | Set to `disabled` to turn off URL sharing entirely. Default: enabled. |
 | `PLANNOTATOR_SHARE_URL` | Custom base URL for share links (self-hosted portal). Default: `https://share.plannotator.ai`. |
 | `PLANNOTATOR_PASTE_URL` | Base URL of the paste service API for short URL sharing. Default: `https://plannotator-paste.plannotator.workers.dev`. |
+| `PLANNOTATOR_JINA` | Set to `0` / `false` to disable Jina Reader for URL annotation, or `1` / `true` to enable. Default: enabled. Can also be set via `~/.plannotator/config.json` (`{ "jina": false }`) or per-invocation via `--no-jina`. |
+| `JINA_API_KEY` | Optional Jina Reader API key for higher rate limits (500 RPM vs 20 RPM unauthenticated). Free keys include 10M tokens. |
 | `PLANNOTATOR_VERIFY_ATTESTATION` | **Read by the install scripts only**, not by the runtime binary. Set to `1` / `true` to have `scripts/install.sh` / `install.ps1` / `install.cmd` run `gh attestation verify` on every install. Off by default. Can also be set persistently via `~/.plannotator/config.json` (`{ "verifyAttestation": true }`) or per-invocation via `--verify-attestation`. Requires `gh` installed and authenticated. |
 
 **Legacy:** `SSH_TTY` and `SSH_CONNECTION` are still detected when `PLANNOTATOR_REMOTE` is unset. Set `PLANNOTATOR_REMOTE=1` / `true` to force remote mode or `0` / `false` to force local mode.
@@ -152,16 +154,20 @@ Approve → "LGTM" sent to agent session
 ## Annotate Flow
 
 ```
-User runs /plannotator-annotate <file.md> command
+User runs /plannotator-annotate <file.md | file.html | https://... | folder/>
         ↓
 Claude Code: plannotator annotate subcommand runs
-OpenCode: event handler intercepts command
+OpenCode/Pi: event handler intercepts command
         ↓
-Markdown file read from disk
+Input type detected:
+  .md/.mdx   → file read from disk
+  .html/.htm → file read, converted to markdown via Turndown
+  https://   → fetched via Jina Reader (default) or fetch+Turndown (--no-jina)
+  folder/    → file browser opened, files converted on demand
         ↓
 Annotate server starts (reuses plan editor HTML with mode:"annotate")
         ↓
-User annotates markdown, provides feedback
+User annotates content, provides feedback
         ↓
 Send Annotations → feedback sent to agent session
 ```
@@ -247,7 +253,7 @@ During normal plan review, an Archive sidebar tab provides the same browsing via
 
 | Endpoint              | Method | Purpose                                    |
 | --------------------- | ------ | ------------------------------------------ |
-| `/api/plan`           | GET    | Returns `{ plan, origin, mode: "annotate", filePath }` |
+| `/api/plan`           | GET    | Returns `{ plan, origin, mode: "annotate", filePath, sourceInfo? }` |
 | `/api/feedback`       | POST   | Submit annotations (body: feedback, annotations) |
 | `/api/image`          | GET    | Serve image by path query param            |
 | `/api/upload`         | POST   | Upload image, returns `{ path, originalName }` |
