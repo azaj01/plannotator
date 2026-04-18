@@ -195,6 +195,10 @@ export const PlannotatorPlugin: Plugin = async (ctx) => {
     return process.env.PLANNOTATOR_SHARE_URL || undefined;
   }
 
+  function getPasteApiUrl(): string | undefined {
+    return process.env.PLANNOTATOR_PASTE_URL || undefined;
+  }
+
   function getPlanTimeoutSeconds(): number | null {
     const raw = process.env.PLANNOTATOR_PLAN_TIMEOUT_SECONDS?.trim();
     if (!raw) return DEFAULT_PLAN_TIMEOUT_SECONDS;
@@ -363,6 +367,7 @@ Do NOT proceed with implementation until your plan is approved.`);
         reviewHtmlContent: getReviewHtml(),
         getSharingEnabled,
         getShareBaseUrl,
+        getPasteApiUrl,
         directory: ctx.directory,
       };
 
@@ -405,6 +410,7 @@ Do NOT proceed with implementation until your plan is approved.`);
         reviewHtmlContent: getReviewHtml(),
         getSharingEnabled,
         getShareBaseUrl,
+        getPasteApiUrl,
         directory: ctx.directory,
       };
 
@@ -448,6 +454,7 @@ Do NOT proceed with implementation until your plan is approved.`);
             origin: "opencode",
             sharingEnabled,
             shareBaseUrl: getShareBaseUrl(),
+            pasteApiUrl: getPasteApiUrl(),
             htmlContent: getPlanHtml(),
             opencodeClient: ctx.client,
             onReady: async (url, isRemote, port) => {
